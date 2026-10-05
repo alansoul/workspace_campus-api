@@ -1,0 +1,25 @@
+'domain: backend':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/**'
+
+'domain: database':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'prisma/**'
+
+'domain: infra':
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'package.json'
+          - 'pnpm-lock.yaml'
+          - '.npmrc'
+          - 'tsconfig*.json'
+
+'domain: docs':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'README.md'
+          - 'docs/**'
+          - '**/*.md'

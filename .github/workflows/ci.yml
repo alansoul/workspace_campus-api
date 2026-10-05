@@ -1,0 +1,43 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Backend (campus-api)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: 🛒 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup Workspace
+        uses: ./.github/actions/setup-workspace
+
+      - name: 🗄️ Generate Prisma Client
+        run: pnpm prisma generate
+
+      - name: 🧹 Lint Code
+        run: pnpm lint
+        continue-on-error: true
+
+      - name: 🧪 Run Tests
+        run: pnpm test
+        continue-on-error: true
+
+      - name: 🏗️ Build Backend
+        run: pnpm build

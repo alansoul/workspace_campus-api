@@ -1,0 +1,12 @@
+# 👑 Main Repository Owner
+* @alansoul
+
+# ⚙️ Configuration & Database
+.github/ @alansoul
+prisma/ @alansoul
+package.json @alansoul
+pnpm-lock.yaml @alansoul
+.npmrc @alansoul
+
+# 🚀 Backend Core Modules
+src/ @alansoul
