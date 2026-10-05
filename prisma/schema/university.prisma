@@ -1,0 +1,44 @@
+model Note {
+  id           String     @id @default(uuid())
+  title        String
+  subject      String
+  semester     Int
+  branch       String
+  fileUrl      String     // PDF URL in Cloudinary/S3
+  downloads    Int        @default(0)
+
+  authorId     String
+  author       User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime   @default(now())
+
+  @@schema("university")
+}
+
+model Complaint {
+  id           String          @id @default(uuid())
+  title        String
+  description  String          @db.Text
+  category     String          // "Hostel", "Mess", "Academics"
+  status       ComplaintStatus @default(PENDING)
+
+  authorId     String
+  author       User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  universityId String
+  university   University      @relation(fields: [universityId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@schema("university")
+}
+
+enum ComplaintStatus {
+  PENDING
+  UNDER_REVIEW
+  RESOLVED
+
+  @@schema("university")
+}

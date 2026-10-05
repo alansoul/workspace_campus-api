@@ -1,0 +1,91 @@
+model University {
+  id           String   @id @default(uuid())
+  name         String
+  shortCode    String   @unique
+  emailDomain  String   @unique
+  logoUrl      String?
+  isActive     Boolean  @default(true)
+
+  users        User[]
+  notes        Note[]
+  complaints   Complaint[]
+  gigs         Gig[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@schema("iam")
+}
+
+model User {
+  id             String        @id @default(uuid())
+  email          String        @unique
+  username       String        @unique
+  fullName       String
+  branch         String?
+  batch          Int?
+  rollNumber     String?
+  avatarUrl      String?
+  role           Role          @default(STUDENT)
+  status         AccountStatus @default(ACTIVE)
+
+  universityId   String
+  university     University    @relation(fields: [universityId], references: [id], onDelete: Cascade)
+
+  password       PasswordCredential?
+  sessions       Session[]
+  notes          Note[]
+  complaints     Complaint[]
+  postedGigs     Gig[]         @relation("ClientGigs")
+  proposals      Proposal[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([universityId])
+  @@index([email])
+  @@schema("iam")
+}
+
+enum Role {
+  STUDENT
+  FACULTY
+  CLUB_HEAD
+  ADMIN
+  SUPER_ADMIN
+
+  @@schema("iam")
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+
+  @@schema("iam")
+}
+
+model PasswordCredential {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  @@schema("iam")
+}
+
+model Session {
+  id                String    @id @default(uuid())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  refreshTokenHash  String    @unique
+  deviceInfo        String?
+  ipAddress         String?
+  isRevoked         Boolean   @default(false)
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+
+  @@index([userId])
+  @@schema("iam")
+}

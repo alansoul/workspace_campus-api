@@ -1,0 +1,68 @@
+model Gig {
+  id           String      @id @default(uuid())
+  title        String
+  description  String      @db.Text
+  budget       Int         // In INR
+  category     String      // "Coding", "Design", "Video"
+  status       GigStatus   @default(OPEN)
+
+  clientId     String
+  client       User        @relation("ClientGigs", fields: [clientId], references: [id], onDelete: Cascade)
+  universityId String
+  university   University  @relation(fields: [universityId], references: [id], onDelete: Cascade)
+
+  proposals    Proposal[]
+  escrow       EscrowTransaction?
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@schema("freelance")
+}
+
+enum GigStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+
+  @@schema("freelance")
+}
+
+model Proposal {
+  id           String   @id @default(uuid())
+  bidAmount    Int      // In INR
+  coverLetter  String   @db.Text
+  deliveryDays Int
+
+  gigId        String
+  gig          Gig      @relation(fields: [gigId], references: [id], onDelete: Cascade)
+  freelancerId String
+  freelancer   User     @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime @default(now())
+
+  @@schema("freelance")
+}
+
+model EscrowTransaction {
+  id           String       @id @default(uuid())
+  amount       Int          // In INR
+  status       EscrowStatus @default(FUNDS_HELD)
+
+  gigId        String       @unique
+  gig          Gig          @relation(fields: [gigId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@schema("freelance")
+}
+
+enum EscrowStatus {
+  FUNDS_HELD
+  RELEASED
+  REFUNDED
+
+  @@schema("freelance")
+}
