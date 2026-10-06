@@ -30,6 +30,9 @@ jobs:
 
       - name: 🗄️ Generate Prisma Client
         run: pnpm prisma generate
+        env:
+          DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy?sslmode=disable"
+          DIRECT_URL: "postgresql://dummy:dummy@localhost:5432/dummy?sslmode=disable"
 
       - name: 🧹 Lint Code
         run: pnpm lint
