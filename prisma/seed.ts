@@ -9,11 +9,20 @@ async function main() {
     create: {
       name: 'Dr. Shyama Prasad Mukherjee IIIT Naya Raipur',
       shortCode: 'IIITNR',
-      emailDomain: 'iiitnr.edu.in',
+      contactName: 'University Admin',
+      contactEmail: 'admin@iiitnr.edu.in',
+      website: 'https://iiitnr.ac.in',
+      status: 'ACTIVE',
+      domains: {
+        create: [
+          { domain: 'iiitnr.edu.in', isPrimary: true, isVerified: true },
+          { domain: 'student.iiitnr.edu.in', isPrimary: false, isVerified: true },
+        ],
+      },
     },
   });
 
-  console.log('✅ Seeded IIIT-NR University:', uni.name);
+  console.log('✅ Seeded IIIT-NR University with domains:', uni.name);
 }
 
 main()

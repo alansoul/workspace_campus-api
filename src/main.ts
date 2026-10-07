@@ -19,8 +19,22 @@ async function bootstrap() {
     }),
   );
 
+  const allowedOrigins = [
+    'http://localhost:3000',
+    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+  ];
+
   app.enableCors({
-    origin: ['http://localhost:3000', /\.vercel\.app$/],
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Blocked by CORS policy'));
+      }
+    },
     credentials: true,
   });
 

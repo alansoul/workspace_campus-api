@@ -1,8 +1,17 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength, Length } from 'class-validator';
 
-export class RegisterDto {
+export class RequestOtpDto {
   @IsEmail({}, { message: 'Must be a valid official college email' })
   email!: string;
+}
+
+export class VerifyAndRegisterDto {
+  @IsEmail({}, { message: 'Must be a valid official college email' })
+  email!: string;
+
+  @IsString()
+  @Length(6, 6, { message: 'OTP must be exactly 6 digits' })
+  otp!: string;
 
   @IsString()
   @MinLength(8, { message: 'Password must be at least 8 characters long' })

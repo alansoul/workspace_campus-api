@@ -1,15 +1,27 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import { AuthService } from '../services/auth.service.js';
-import { RegisterDto, LoginDto } from '../dto/auth.dto.js';
+import { RequestOtpDto, VerifyAndRegisterDto, LoginDto } from '../dto/auth.dto.js';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post('register')
+  @Get('resolve-domain')
+  @HttpCode(HttpStatus.OK)
+  resolveDomain(@Query('email') email: string) {
+    return this.authService.resolveDomain(email || '');
+  }
+
+  @Post('request-otp')
+  @HttpCode(HttpStatus.OK)
+  requestOtp(@Body() dto: RequestOtpDto) {
+    return this.authService.requestOtp(dto);
+  }
+
+  @Post('verify-and-register')
   @HttpCode(HttpStatus.CREATED)
-  register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  verifyAndRegister(@Body() dto: VerifyAndRegisterDto) {
+    return this.authService.verifyAndRegister(dto);
   }
 
   @Post('login')

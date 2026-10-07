@@ -1,46 +1,75 @@
 model University {
-  id           String   @id @default(uuid())
-  name         String
-  shortCode    String   @unique
-  emailDomain  String   @unique
-  logoUrl      String?
-  isActive     Boolean  @default(true)
+  id              String             @id @default(uuid())
+  name            String
+  shortCode       String             @unique
+  logoUrl         String?
+  website         String?
+  status          UniversityStatus   @default(PENDING)
+  verificationKey String             @default(uuid())
+  contactName     String
+  contactEmail    String
 
-  users        User[]
-  notes        Note[]
-  complaints   Complaint[]
-  gigs         Gig[]
+  domains         UniversityDomain[]
+  users           User[]
+  notes           Note[]
+  questions       Question[]
+  complaints      Complaint[]
+  gigs            Gig[]
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@schema("iam")
+}
+
+model UniversityDomain {
+  id           String     @id @default(uuid())
+  domain       String     @unique 
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  isPrimary    Boolean    @default(false)
+  isVerified   Boolean    @default(false)
+
+  createdAt    DateTime   @default(now())
+
+  @@index([domain])
+  @@schema("iam")
+}
+
+enum UniversityStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
 
   @@schema("iam")
 }
 
 model User {
-  id             String        @id @default(uuid())
-  email          String        @unique
-  username       String        @unique
-  fullName       String
-  branch         String?
-  batch          Int?
-  rollNumber     String?
-  avatarUrl      String?
-  role           Role          @default(STUDENT)
-  status         AccountStatus @default(ACTIVE)
+  id              String        @id @default(uuid())
+  email           String        @unique
+  username        String        @unique
+  fullName        String
+  branch          String?
+  batch           Int?
+  rollNumber      String?
+  avatarUrl       String?
+  role            Role          @default(STUDENT)
+  status          AccountStatus @default(ACTIVE)
+  isEmailVerified Boolean       @default(false)
 
-  universityId   String
-  university     University    @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  universityId    String
+  university      University    @relation(fields: [universityId], references: [id], onDelete: Cascade)
 
-  password       PasswordCredential?
-  sessions       Session[]
-  notes          Note[]
-  complaints     Complaint[]
-  postedGigs     Gig[]         @relation("ClientGigs")
-  proposals      Proposal[]
+  password        PasswordCredential?
+  sessions        Session[]
+  notes           Note[]
+  questions       Question[]
+  complaints      Complaint[]
+  postedGigs      Gig[]         @relation("ClientGigs")
+  proposals       Proposal[]
 
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@index([universityId])
   @@index([email])
@@ -76,15 +105,15 @@ model PasswordCredential {
 }
 
 model Session {
-  id                String    @id @default(uuid())
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId            String
-  refreshTokenHash  String    @unique
-  deviceInfo        String?
-  ipAddress         String?
-  isRevoked         Boolean   @default(false)
-  expiresAt         DateTime
-  createdAt         DateTime  @default(now())
+  id               String   @id @default(uuid())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+  refreshTokenHash String   @unique
+  deviceInfo       String?
+  ipAddress        String?
+  isRevoked        Boolean  @default(false)
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
 
   @@index([userId])
   @@schema("iam")
