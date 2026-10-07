@@ -14,6 +14,24 @@ model Note {
 
   createdAt    DateTime   @default(now())
 
+  @@index([universityId])
+  @@schema("university")
+}
+
+model Question {
+  id           String     @id @default(uuid())
+  title        String
+  subject      String
+  description  String     @db.Text
+
+  authorId     String
+  author       User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime   @default(now())
+
+  @@index([universityId])
   @@schema("university")
 }
 
@@ -32,6 +50,7 @@ model Complaint {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
+  @@index([universityId])
   @@schema("university")
 }
 
