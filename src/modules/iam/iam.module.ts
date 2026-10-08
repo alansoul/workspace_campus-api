@@ -4,6 +4,7 @@ import { AuthController } from './controllers/auth.controller.js';
 import { AuthService } from './services/auth.service.js';
 import { PasswordService } from './services/password.service.js';
 import { OtpService } from './services/otp.service.js';
+import { MailService } from './services/mail.service.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
 import { PrismaService } from '../../prisma.service.js';
@@ -26,10 +27,11 @@ if (!jwtSecret && process.env.NODE_ENV === 'production') {
     AuthService,
     PasswordService,
     OtpService,
+    MailService,
     JwtAuthGuard,
     RolesGuard,
     PrismaService,
   ],
-  exports: [AuthService, JwtAuthGuard, RolesGuard],
+  exports: [AuthService, MailService, JwtAuthGuard, RolesGuard],
 })
 export class IamModule {}

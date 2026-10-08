@@ -5,6 +5,7 @@ import { UniversityService } from './services/university.service.js';
 import { PrismaService } from '../../prisma.service.js';
 import { PasswordService } from '../iam/services/password.service.js';
 import { OtpService } from '../iam/services/otp.service.js';
+import { MailService } from '../iam/services/mail.service.js';
 import { JwtAuthGuard } from '../iam/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../iam/guards/roles.guard.js';
 import { IamModule } from '../iam/iam.module.js';
@@ -17,6 +18,7 @@ import { IamModule } from '../iam/iam.module.js';
     PrismaService,
     PasswordService,
     OtpService,
+    MailService,
     JwtAuthGuard,
     RolesGuard,
   ],
