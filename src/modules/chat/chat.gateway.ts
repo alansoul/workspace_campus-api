@@ -12,8 +12,26 @@ import { Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import type { AuthenticatedUser } from '../iam/guards/jwt-auth.guard.js';
 
+function parseCookie(cookieString?: string): Record<string, string> {
+  if (!cookieString) return {};
+  return Object.fromEntries(
+    cookieString.split(';').map((c) => {
+      const [k, ...v] = c.trim().split('=');
+      return [k, decodeURIComponent(v.join('='))];
+    }),
+  );
+}
+
+const allowedOrigins = [
+  'http://localhost:3000',
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+];
+
 @WebSocketGateway({
-  cors: { origin: ['http://localhost:3000', /\.vercel\.app$/], credentials: true },
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+  },
 })
 export class ChatGateway implements OnGatewayConnection {
   @WebSocketServer()
@@ -25,8 +43,10 @@ export class ChatGateway implements OnGatewayConnection {
 
   async handleConnection(client: Socket) {
     try {
+      const cookies = parseCookie(client.handshake.headers.cookie);
       const token =
         client.handshake.auth?.token ||
+        cookies['token'] ||
         (client.handshake.headers.authorization?.startsWith('Bearer ')
           ? client.handshake.headers.authorization.split(' ')[1]
           : undefined);
