@@ -25,12 +25,36 @@ const BLOCKED_DOMAINS = new Set([
   'aol.com',
 ]);
 
+/**
+ * Ensures claimed domains match or are explicit subdomains of the verified email domain.
+ * Prevents claiming broad root/country zones (e.g., claiming edu.in from college.edu.in).
+ */
 function isDomainRelated(domain: string, emailDomain: string): boolean {
-  return (
-    domain === emailDomain ||
-    domain.endsWith(`.${emailDomain}`) ||
-    emailDomain.endsWith(`.${domain}`)
-  );
+  return domain === emailDomain || domain.endsWith(`.${emailDomain}`);
+}
+
+/**
+ * Identifies standard institutional student email conventions.
+ */
+function isStudentEmail(email: string): boolean {
+  const [localPart, domainPart] = email.toLowerCase().split('@');
+  if (!localPart || !domainPart) return false;
+
+  // Student subdomain indicators
+  if (
+    domainPart.startsWith('student.') ||
+    domainPart.includes('.std.') ||
+    domainPart.includes('.student.')
+  ) {
+    return true;
+  }
+
+  // Common campus roll number or batch ID patterns (e.g., 21bcs042, btech2024, or 5+ consecutive digits)
+  const matchesRollPattern =
+    /^[a-z]{0,4}\d{4,8}[a-z0-9]*$/i.test(localPart) ||
+    /\d{5,}/.test(localPart);
+
+  return matchesRollPattern;
 }
 
 @Injectable()
@@ -44,6 +68,14 @@ export class UniversityService {
 
   async requestOtp(dto: RequestUniversityOtpDto) {
     const email = dto.email.toLowerCase().trim();
+
+    // Security Gate: Reject student emails from claiming university administration
+    if (isStudentEmail(email)) {
+      throw new BadRequestException(
+        'Student email accounts cannot claim administrative management of an institution.',
+      );
+    }
+
     const emailDomain = email.split('@')[1];
     const domains = dto.domains.map((d) => d.toLowerCase().trim()).filter(Boolean);
 
@@ -91,6 +123,14 @@ export class UniversityService {
 
   async claim(dto: ClaimUniversityDto) {
     const email = dto.contactEmail.toLowerCase().trim();
+
+    // Security Gate: Reject student emails from claiming university administration
+    if (isStudentEmail(email)) {
+      throw new BadRequestException(
+        'Student email accounts cannot claim administrative management of an institution.',
+      );
+    }
+
     const emailDomain = email.split('@')[1];
     const domains = dto.domains.map((d) => d.toLowerCase().trim()).filter(Boolean);
     const shortCode = dto.shortCode.toUpperCase().trim();

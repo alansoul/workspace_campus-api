@@ -161,6 +161,27 @@ export class AuthService {
     };
   }
 
+  async getProfile(userId: string) {
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    include: { university: { select: { id: true, name: true, shortCode: true } } },
+  });
+
+  if (!user) throw new UnauthorizedException('User no longer exists.');
+
+  return {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    fullName: user.fullName,
+    branch: user.branch,
+    role: user.role,
+    universityId: user.universityId,
+    universityName: user.university.name,
+    isEmailVerified: user.isEmailVerified,
+  };
+}
+
   private signToken(
     userId: string,
     email: string,

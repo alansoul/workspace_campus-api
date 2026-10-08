@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { UniversityService } from '../services/university.service.js';
@@ -17,7 +18,15 @@ import {
   CreateNoteDto,
   CreateQuestionDto,
 } from '../dto/university.dto.js';
+import type { Response } from 'express';
 
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+  path: '/',
+};
 @Controller('universities')
 export class UniversityController {
   constructor(private readonly universityService: UniversityService) {}
@@ -29,10 +38,15 @@ export class UniversityController {
   }
 
   @Post('claim')
-  @HttpCode(HttpStatus.CREATED)
-  claim(@Body() dto: ClaimUniversityDto) {
-    return this.universityService.claim(dto);
-  }
+@HttpCode(HttpStatus.CREATED)
+async claim(
+  @Body() dto: ClaimUniversityDto,
+  @Res({ passthrough: true }) res: Response,
+) {
+  const result = await this.universityService.claim(dto);
+  res.cookie('token', result.accessToken, COOKIE_OPTIONS);
+  return result;
+}
 
   @Get('notes')
   @UseGuards(JwtAuthGuard)
