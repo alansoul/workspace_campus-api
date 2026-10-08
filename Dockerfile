@@ -7,11 +7,12 @@ WORKDIR /app
 RUN apt-get update -y && apt-get install -y openssl python3 make g++ ca-certificates
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-COPY package.json pnpm-lock.yaml* ./
+# Copy all configuration and workspace files
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY prisma ./prisma/
 
-# Install dependencies (argon2 will use fast glibc prebuilt binary)
-RUN pnpm install --frozen-lockfile || pnpm install
+# Install dependencies with explicit build script authorization
+RUN pnpm install --frozen-lockfile --dangerously-allow-all-builds || pnpm install --dangerously-allow-all-builds
 
 COPY . .
 

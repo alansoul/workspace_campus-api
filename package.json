@@ -68,6 +68,15 @@
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^4.1.2"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "argon2",
+      "esbuild",
+      "prisma"
+    ]
+  },
   "prisma": {
     "schema": "prisma/schema"
   }
