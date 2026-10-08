@@ -1,0 +1,15 @@
+services:
+  campus-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: campus-api
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      - FRONTEND_URL=http://localhost:3000
+      - PORT=4000
+      - NODE_ENV=production
+    restart: always
