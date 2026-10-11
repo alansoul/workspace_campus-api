@@ -14,6 +14,7 @@ import {
   CreateNoteDto,
   CreateQuestionDto,
 } from '../dto/university.dto.js';
+import { MailService } from '../../iam/services/mail.service.js';
 
 const BLOCKED_DOMAINS = new Set([
   'gmail.com',
@@ -64,6 +65,7 @@ export class UniversityService {
     private readonly passwordService: PasswordService,
     private readonly otpService: OtpService,
     private readonly jwtService: JwtService,
+    private readonly mailService: MailService,
   ) {}
 
   async requestOtp(dto: RequestUniversityOtpDto) {
@@ -113,11 +115,15 @@ export class UniversityService {
       throw new ConflictException('An account with this email already exists.');
     }
 
+    // 1. Generate and save the OTP
     const otp = await this.otpService.generateAndSaveOtp(email);
 
+    // 2. Dispatch real email via Resend (and log to backend terminal)
+    await this.mailService.sendVerificationOtp(email, otp);
+
+    // 3. Production safe: NEVER return devOtp in the response payload
     return {
       message: `Verification code sent to ${email}`,
-      ...(process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}),
     };
   }
 
