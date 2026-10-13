@@ -60,9 +60,10 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Your account has been deactivated or suspended.');
     }
 
-    if (user.university.status !== 'ACTIVE') {
-      throw new UnauthorizedException('Your university workspace is currently suspended.');
-    }
+    // ✅ NEW (safe check for both Gmail and University users):
+if (user.university && user.university.status !== 'ACTIVE') {
+  throw new UnauthorizedException('Your university workspace is currently suspended.');
+}
 
     // Keep payload role synchronized with current database record
     payload.role = user.role;

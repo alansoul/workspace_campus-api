@@ -14,7 +14,7 @@ async function bootstrap() {
       crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
   );
-  app.use(cookieParser());
+  app.use(cookieParser()); // 🚨 Required to read HttpOnly cookies in JwtAuthGuard
   app.setGlobalPrefix('api');
 
   app.useGlobalPipes(
@@ -41,7 +41,7 @@ async function bootstrap() {
         callback(null, false);
       }
     },
-    credentials: true, // Required for httpOnly cookies and authorization headers
+    credentials: true, // 🚨 CRITICAL: Allows browser to send the HttpOnly cookie
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],
   });

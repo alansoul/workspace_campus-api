@@ -161,10 +161,6 @@ export class UniversityService {
       }
     }
 
-    const isValidOtp = await this.otpService.verifyOtp(email, dto.otp);
-    if (!isValidOtp) {
-      throw new BadRequestException('Invalid or expired verification code.');
-    }
 
     const existingDomain = await this.prisma.universityDomain.findFirst({
       where: { domain: { in: domains } },
@@ -183,6 +179,12 @@ export class UniversityService {
     const existingUser = await this.prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       throw new ConflictException('An account with this email already exists.');
+    }
+
+     // 4. Verify OTP only after all uniqueness constraints pass
+    const isValidOtp = await this.otpService.verifyOtp(email, dto.otp);
+    if (!isValidOtp) {
+      throw new BadRequestException('Invalid or expired verification code.');
     }
 
     const passwordHash = await this.passwordService.hash(dto.password);

@@ -57,8 +57,10 @@ model User {
   status          AccountStatus @default(ACTIVE)
   isEmailVerified Boolean       @default(false)
 
-  universityId    String
-  university      University    @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  universityId        String?
+  institutionalEmail  String?       @unique
+  university          University?   @relation(fields: [universityId], references: [id], onDelete: Cascade)
+
 
   password        PasswordCredential?
   sessions        Session[]
