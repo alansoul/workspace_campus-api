@@ -1,78 +1,103 @@
+// campus-api/src/modules/iam/services/mail.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { Resend } from 'resend';
 
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private resend: Resend | null = null;
+  private readonly resend: Resend | null = null;
   private readonly fromEmail: string;
 
   constructor() {
     const apiKey = process.env.RESEND_API_KEY;
+
     if (apiKey) {
       this.resend = new Resend(apiKey);
       this.logger.log('✅ Enterprise MailService initialized with Resend');
     } else {
       this.logger.warn(
-        '⚠️ RESEND_API_KEY not found. Emails will be logged to server console only.',
+        '⚠️ RESEND_API_KEY not found in environment. Emails will be logged to console only.',
       );
     }
 
+    // Default to Resend testing address if custom domain is not yet configured
     this.fromEmail =
-      process.env.EMAIL_FROM || 'Campus Workspace <onboarding@resend.dev>';
+      process.env.EMAIL_FROM || 'Northstar Workspace <onboarding@resend.dev>';
   }
 
-  async sendVerificationOtp(email: string, otp: string): Promise<boolean> {
-    // 1. Always log to secure server console for audit/staging tracing
+  /**
+   * Dispatches branded single-use verification OTP emails
+   */
+  async sendVerificationOtp(
+    email: string,
+    otp: string,
+    universityName?: string,
+  ): Promise<boolean> {
+    const orgTitle = universityName || 'Northstar Workspace';
+
+    // 1. Audit log: Always record to secure backend terminal
     this.logger.log(`🔑 [SECURITY AUDIT] OTP for ${email}: ${otp}`);
 
     if (!this.resend) {
       this.logger.warn(
-        `Email dispatch skipped for ${email} (RESEND_API_KEY missing). Use OTP from logs above.`,
+        `Email dispatch skipped for ${email} (No RESEND_API_KEY). Use OTP from terminal.`,
       );
       return false;
     }
 
+    // 2. Intelligent Delivery Routing:
+    // If using the resend.dev sandbox, route to account owner to prevent 403 errors.
+    // In production with a verified domain, deliver directly to the university recipient.
+    const isSandbox = this.fromEmail.includes('resend.dev');
+    const recipient = isSandbox
+      ? process.env.DEV_OVERRIDE_EMAIL || 'alansoul796@gmail.com'
+      : email;
+
     const htmlContent = `
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
       <head>
         <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Verify your institutional account</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f19; color: #f8fafc; padding: 40px 20px; }
-          .container { max-width: 520px; margin: 0 auto; background: #131b2e; border: 1px solid #1e293b; border-radius: 16px; padding: 36px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-          .header { text-align: center; margin-bottom: 24px; }
-          .header h1 { font-size: 20px; font-weight: 700; color: #38bdf8; margin: 0; }
-          .header p { font-size: 13px; color: #94a3b8; margin-top: 4px; }
-          .otp-box { background: #0b0f19; border: 1px solid #334155; border-radius: 12px; padding: 20px; text-align: center; margin: 28px 0; }
-          .otp-code { font-family: 'Courier New', monospace; font-size: 34px; font-weight: 800; letter-spacing: 8px; color: #4ade80; }
-          .desc { font-size: 14px; line-height: 1.6; color: #cbd5e1; }
-          .footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #1e293b; font-size: 11px; color: #64748b; text-align: center; }
-          .badge { display: inline-block; background: rgba(56, 189, 248, 0.1); color: #38bdf8; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; margin-bottom: 12px; }
+          body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f8fafc; color: #1e293b; }
+          .wrapper { max-width: 560px; margin: 40px auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); }
+          .header { background: #0b57d0; padding: 32px 28px; text-align: center; color: #ffffff; }
+          .header h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+          .header p { margin: 6px 0 0 0; font-size: 13px; opacity: 0.9; }
+          .content { padding: 36px 32px; }
+          .greeting { font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 12px; }
+          .desc { font-size: 14px; color: #475569; line-height: 1.6; margin: 0 0 28px 0; }
+          .otp-card { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 14px; padding: 22px; text-align: center; margin-bottom: 28px; }
+          .otp-code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #0b57d0; display: inline-block; }
+          .notice { font-size: 12px; color: #64748b; line-height: 1.5; margin-bottom: 8px; }
+          .footer { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px; text-align: center; font-size: 11px; color: #94a3b8; }
         </style>
       </head>
       <body>
-        <div class="container">
+        <div class="wrapper">
           <div class="header">
-            <span class="badge">Official Institutional Gateway</span>
-            <h1>Campus Workspace</h1>
-            <p>Single Sign-On Security Verification</p>
+            <h1>${orgTitle}</h1>
+            <p>Institutional Domain Security Verification</p>
           </div>
-          <p class="desc">Hello,</p>
-          <p class="desc">Your verification code for institutional account authentication is provided below. Enter this 6-digit code in the portal to verify your domain identity:</p>
-          
-          <div class="otp-box">
-            <div class="otp-code">${otp}</div>
+          <div class="content">
+            <div class="greeting">Hello,</div>
+            <p class="desc">
+              A request was made to verify the institutional domain for <strong>${email}</strong>. 
+              Enter the single-use verification code below to complete administrative provisioning:
+            </p>
+            
+            <div class="otp-card">
+              <span class="otp-code">${otp}</span>
+            </div>
+
+            <p class="notice">⏱️ <strong>Expires in 10 minutes:</strong> This code can only be used once.</p>
+            <p class="notice">🔒 If you did not initiate this request, you can safely ignore this email.</p>
           </div>
-
-          <p class="desc" style="font-size: 12px; color: #94a3b8;">
-            ⏱️ <strong>This code expires in 10 minutes</strong> and can only be used once.<br>
-            🔒 If you did not initiate this request, you can safely disregard this email.
-          </p>
-
           <div class="footer">
-            © 2026 Campus Workspace. Multi-tenant Institutional Network.<br>
-            Secured with end-to-end domain verification.
+            © 2026 Northstar Workspace. Multi-tenant Institutional Architecture.<br>
+            Protected with end-to-end domain isolation.
           </div>
         </div>
       </body>
@@ -80,20 +105,25 @@ export class MailService {
     `;
 
     try {
-      const response = await this.resend.emails.send({
+      const { data, error } = await this.resend.emails.send({
         from: this.fromEmail,
-        to: email,
-        subject: `Your Verification Code: ${otp} - Campus Workspace`,
+        to: recipient,
+        subject: `${otp} is your ${orgTitle} verification code`,
         html: htmlContent,
       });
 
-      this.logger.log(
-        `✉️ Verification email dispatched successfully to ${email} (ID: ${response.data?.id})`,
-      );
+      if (error) {
+        this.logger.error(`❌ Resend Error: ${error.message} (Status: ${error.name})`);
+        return false;
+      }
+
+      this.logger.log(`✉️ Email delivered successfully to ${recipient} (Resend ID: ${data?.id})`);
       return true;
-    } catch (error) {
-      this.logger.error(`❌ Failed to send email to ${email}:`, error);
+    } catch (err: unknown) {
+      this.logger.error(`❌ Dispatch exception for ${email}:`, err);
       return false;
     }
   }
 }
+
+export default MailService;

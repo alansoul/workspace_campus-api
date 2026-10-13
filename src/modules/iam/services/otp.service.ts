@@ -22,7 +22,6 @@ export class OtpService {
     { code: string; expiresAt: number; attempts: number }
   >();
 
-  // Injected MailService into constructor
   constructor(private readonly mailService: MailService) {
     if (
       process.env.UPSTASH_REDIS_REST_URL &&
@@ -40,7 +39,7 @@ export class OtpService {
     }
   }
 
-  async generateAndSaveOtp(email: string): Promise<string> {
+  async generateAndSaveOtp(email: string, purpose?: string): Promise<string> {
     const normalizedEmail = email.toLowerCase().trim();
     const key = `otp:${normalizedEmail}`;
     const otp = crypto.randomInt(100000, 999999).toString();
@@ -73,8 +72,10 @@ export class OtpService {
       });
     }
 
-    // 2. Audit log for production/staging traceability
-    this.logger.log(`🔑 [AUTH_AUDIT] OTP for ${normalizedEmail}: ${otp}`);
+    // 2. Audit log for local & staging traceability
+    this.logger.log(
+      `🔑 [AUTH_AUDIT] OTP for ${normalizedEmail} (${purpose || 'AUTH'}): ${otp}`,
+    );
 
     // 3. Dispatch transactional email via MailService
     try {
@@ -84,7 +85,6 @@ export class OtpService {
         `Failed to deliver OTP email to ${normalizedEmail}`,
         err,
       );
-      // Clean up key if email failed to avoid locking the user out with an unsent code
       if (this.redis) {
         await this.redis.del(key);
       } else {
