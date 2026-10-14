@@ -32,8 +32,8 @@ const isProd = process.env.NODE_ENV === 'production';
 
 const COOKIE_OPTIONS = {
   httpOnly: true, // 🚨 CRITICAL: JavaScript cannot access this cookie (Prevents XSS)
-  secure: isProd, // Must be true when sameSite is 'none' on HTTPS
-  sameSite: isProd ? ('none' as const) : ('lax' as const), // Allows cross-domain cookies between Vercel & Render
+  secure: isProd, // Must be true on Vercel/Production
+  sameSite: 'lax' as const, // First-party via Vercel /api proxy -> strict CSRF protection
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   path: '/',
 };
@@ -230,11 +230,8 @@ export class AuthController {
 
     // Refresh UI cookies so edge middleware sees account as INSTITUTIONAL
     res.cookie('account_type', 'INSTITUTIONAL', {
+      ...COOKIE_OPTIONS,
       httpOnly: false,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     return result;
@@ -292,11 +289,8 @@ export class AuthController {
 
     // Update UI helper cookie to INDIVIDUAL
     res.cookie('account_type', 'INDIVIDUAL', {
+      ...COOKIE_OPTIONS,
       httpOnly: false,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     return result;

@@ -147,4 +147,31 @@ export class OtpService {
     this.inMemoryFallback.delete(key);
     return true;
   }
+
+  async markPasswordSetupVerified(email: string): Promise<void> {
+  const key = `pwd_setup:${email.toLowerCase().trim()}`;
+  if (this.redis) {
+    await this.redis.set(key, 'true', { ex: 600 }); // 10 min window
+  } else {
+    this.inMemoryFallback.set(key, {
+      code: 'true',
+      expiresAt: Date.now() + 600 * 1000,
+      attempts: 0,
+    });
+  }
+}
+
+async consumePasswordSetupVerified(email: string): Promise<boolean> {
+  const key = `pwd_setup:${email.toLowerCase().trim()}`;
+  if (this.redis) {
+    const val = await this.redis.get(key);
+    if (!val) return false;
+    await this.redis.del(key);
+    return true;
+  }
+  const record = this.inMemoryFallback.get(key);
+  if (!record || record.expiresAt < Date.now()) return false;
+  this.inMemoryFallback.delete(key);
+  return true;
+}
 }

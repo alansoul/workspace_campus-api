@@ -230,6 +230,7 @@ export class AuthService {
 
     // First-time: force password setup (no session cookie yet)
     if (!hasPassword) {
+      await this.otpService.markPasswordSetupVerified(normalizedEmail);
       return {
         message: 'Email verified. Please create your password.',
         requiresPasswordSetup: true,
@@ -278,7 +279,7 @@ export class AuthService {
     };
   }
 
-  async setPassword(dto: SetPasswordDto) {
+ async setPassword(dto: SetPasswordDto) {
     const normalizedEmail = dto.email.toLowerCase().trim();
 
     const user = await this.prisma.user.findUnique({
@@ -301,6 +302,15 @@ export class AuthService {
     if (user.password) {
       throw new ConflictException(
         'Password already set. Please sign in directly.',
+      );
+    }
+
+    // 🚨 SECURITY GATE: Verify the 10-minute Redis setup ticket from verifyOtp
+    const isAuthorized =
+      await this.otpService.consumePasswordSetupVerified(normalizedEmail);
+    if (!isAuthorized) {
+      throw new UnauthorizedException(
+        'Password setup session expired or unauthorized. Please verify your email with OTP first.',
       );
     }
 
@@ -432,6 +442,14 @@ export class AuthService {
       } as any,
       include: { university: true },
     });
+
+    const accessToken = await this.signToken(
+      updated.id,
+      updated.email,
+      updated.role,
+      updated.universityId,
+      updated.fullName,
+    );
 
     return {
       message: 'Campus email linked successfully!',
@@ -623,6 +641,14 @@ export class AuthService {
       },
       include: { university: true },
     });
+
+    const accessToken = await this.signToken(
+      updated.id,
+      updated.email,
+      updated.role,
+      null,
+      updated.fullName,
+    );
 
     return {
       message: 'Campus email unlinked successfully.',
