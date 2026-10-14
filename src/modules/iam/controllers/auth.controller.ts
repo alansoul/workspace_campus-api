@@ -30,15 +30,28 @@ import type { AuthenticatedUser } from '../guards/jwt-auth.guard.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 
+// 🚨 CRITICAL FOR CROSS-DOMAIN (Render API -> Vercel Frontend):
+// Production cross-site cookies require sameSite: 'none' and secure: true
 const COOKIE_OPTIONS = {
-  httpOnly: true, // 🚨 CRITICAL: JavaScript cannot access this cookie (Prevents XSS)
-  secure: isProd, // Must be true on Vercel/Production
-  sameSite: 'lax' as const, // First-party via Vercel /api proxy -> strict CSRF protection
+  httpOnly: true,
+  secure: isProd,
+  sameSite: isProd ? ('none' as const) : ('lax' as const),
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   path: '/',
 };
 
-// Supports both 'auth' and 'iam' base paths to prevent route mismatches
+/**
+ * Ensures FRONTEND_URL is an absolute URL with protocol (e.g. https://domain.vercel.app)
+ * to prevent Express from treating redirects as relative paths.
+ */
+function sanitizeFrontendUrl(rawUrl?: string): string {
+  let url = (rawUrl || 'http://localhost:3000').trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url}`;
+  }
+  return url.replace(/\/+$/, ''); // Strip trailing slashes
+}
+
 @Controller(['auth', 'iam'])
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -60,7 +73,8 @@ export class AuthController {
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleAuthCallback(@Req() req: any, @Res() res: Response) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = sanitizeFrontendUrl(process.env.FRONTEND_URL);
+
     try {
       const result = await this.authService.handleGoogleOAuthLogin(req.user);
 
@@ -110,7 +124,6 @@ export class AuthController {
 
     const { accessToken, token, ...safeData } = result as any;
 
-    // Set the secure HttpOnly cookie
     if (accessToken) {
       res.cookie('token', accessToken, COOKIE_OPTIONS);
       res.cookie('user_role', safeData.user.role, {
@@ -228,7 +241,6 @@ export class AuthController {
       dto.otp,
     );
 
-    // Refresh UI cookies so edge middleware sees account as INSTITUTIONAL
     res.cookie('account_type', 'INSTITUTIONAL', {
       ...COOKIE_OPTIONS,
       httpOnly: false,
@@ -287,7 +299,6 @@ export class AuthController {
   ) {
     const result = await this.authService.unlinkCampus(user.sub);
 
-    // Update UI helper cookie to INDIVIDUAL
     res.cookie('account_type', 'INDIVIDUAL', {
       ...COOKIE_OPTIONS,
       httpOnly: false,
