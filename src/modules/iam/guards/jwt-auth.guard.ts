@@ -52,6 +52,7 @@ export class JwtAuthGuard implements CanActivate {
         id: true,
         status: true,
         role: true,
+        universityId: true,
         university: { select: { status: true } },
       },
     });
@@ -67,6 +68,7 @@ if (user.university && user.university.status !== 'ACTIVE') {
 
     // Keep payload role synchronized with current database record
     payload.role = user.role;
+    payload.universityId = user.universityId ?? '';
     (request as Request & { user: AuthenticatedUser }).user = payload;
 
     return true;
