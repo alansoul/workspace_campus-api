@@ -1,3 +1,4 @@
+// campus-api/src/modules/iam/controllers/auth.controller.ts
 import {
   Body,
   Controller,
@@ -30,7 +31,7 @@ import type { AuthenticatedUser } from '../guards/jwt-auth.guard.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 
-// Cross-site cookie configuration for production (Render API -> Vercel Frontend)
+// Cross-site cookie configuration
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: isProd,
@@ -71,6 +72,7 @@ export class AuthController {
     try {
       const result = await this.authService.handleGoogleOAuthLogin(req.user);
 
+      // Set fallback cookies on the API domain
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
       res.cookie('user_role', result.user.role, {
         ...COOKIE_OPTIONS,
@@ -81,8 +83,15 @@ export class AuthController {
         httpOnly: false,
       });
 
-      // 🚨 REDIRECT TO VERCEL FRONTEND DASHBOARD
-      return res.redirect(`${frontendUrl}/dashboard`);
+      // 🚨 CRITICAL FIX: Redirect to Vercel's session bridge endpoint
+      // This sets the FIRST-PARTY HttpOnly cookie directly on workspace-campus-web.vercel.app
+      const bridgeUrl = new URL('/api/auth/session', frontendUrl);
+      bridgeUrl.searchParams.set('token', result.accessToken);
+      bridgeUrl.searchParams.set('role', result.user.role);
+      bridgeUrl.searchParams.set('accountType', result.user.accountType);
+      bridgeUrl.searchParams.set('redirect', '/dashboard');
+
+      return res.redirect(bridgeUrl.toString());
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : 'Google authentication failed';
@@ -300,3 +309,5 @@ export class AuthController {
     return result;
   }
 }
+
+export default AuthController;
