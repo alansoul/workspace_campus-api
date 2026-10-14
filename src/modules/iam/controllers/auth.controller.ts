@@ -32,8 +32,8 @@ const isProd = process.env.NODE_ENV === 'production';
 
 const COOKIE_OPTIONS = {
   httpOnly: true, // 🚨 CRITICAL: JavaScript cannot access this cookie (Prevents XSS)
-  secure: isProd, // True on Render/Vercel HTTPS, false on localhost HTTP
-  sameSite: isProd ? ('none' as const) : ('lax' as const), // 'none' required for Vercel <-> Render cross-origin cookies
+  secure: isProd, // Must be true when sameSite is 'none' on HTTPS
+  sameSite: isProd ? ('none' as const) : ('lax' as const), // Allows cross-domain cookies between Vercel & Render
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   path: '/',
 };
