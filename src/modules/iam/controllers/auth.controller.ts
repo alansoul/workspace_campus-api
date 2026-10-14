@@ -31,7 +31,6 @@ import type { AuthenticatedUser } from '../guards/jwt-auth.guard.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 
-// Cross-site cookie configuration
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: isProd,
@@ -72,7 +71,7 @@ export class AuthController {
     try {
       const result = await this.authService.handleGoogleOAuthLogin(req.user);
 
-      // Set fallback cookies on the API domain
+      // Set cookies on API domain
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
       res.cookie('user_role', result.user.role, {
         ...COOKIE_OPTIONS,
@@ -83,9 +82,9 @@ export class AuthController {
         httpOnly: false,
       });
 
-      // 🚨 CRITICAL FIX: Redirect to Vercel's session bridge endpoint
-      // This sets the FIRST-PARTY HttpOnly cookie directly on workspace-campus-web.vercel.app
-      const bridgeUrl = new URL('/api/auth/session', frontendUrl);
+      // 🚨 CRITICAL FIX: Redirect to Vercel's /auth/callback (NOT /api/auth/session)
+      // This bypasses Next.js /api proxy rewrites and sets first-party cookies on Vercel
+      const bridgeUrl = new URL('/auth/callback', frontendUrl);
       bridgeUrl.searchParams.set('token', result.accessToken);
       bridgeUrl.searchParams.set('role', result.user.role);
       bridgeUrl.searchParams.set('accountType', result.user.accountType);
@@ -101,7 +100,6 @@ export class AuthController {
     }
   }
 
-  // Handles both /request-otp and /otp/request
   @Post(['request-otp', 'otp/request'])
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
@@ -109,7 +107,6 @@ export class AuthController {
     return this.authService.requestOtp(dto);
   }
 
-  // Passwordless OTP entry
   @Post(['verify-otp', 'otp/verify'])
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
@@ -165,7 +162,6 @@ export class AuthController {
     return safeData;
   }
 
-  // 🔑 FORGOT PASSWORD RESET
   @Post('password/reset')
   @HttpCode(HttpStatus.OK)
   async resetPassword(
@@ -214,7 +210,6 @@ export class AuthController {
     return safeData;
   }
 
-  // 🔗 LINK CAMPUS: Request OTP for linking institutional email to personal account
   @Post('campus/link/request')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -228,7 +223,6 @@ export class AuthController {
     );
   }
 
-  // 🔗 LINK CAMPUS: Verify OTP and attach university domain to account
   @Post('campus/link/verify')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -291,7 +285,6 @@ export class AuthController {
     return { message: 'Signed out successfully' };
   }
 
-  // 🔗 UNLINK CAMPUS: Removes university association from personal account
   @Post('campus/unlink')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
