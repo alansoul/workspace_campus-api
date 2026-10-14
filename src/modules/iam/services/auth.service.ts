@@ -19,6 +19,7 @@ import {
   SetPasswordDto,
   ResetPasswordDto,
 } from '../dto/auth.dto.js';
+import { MailService } from './mail.service.js';
 
 type UserWithRelations = Prisma.UserGetPayload<{
   include: { university: true; password: true };
@@ -31,6 +32,7 @@ export class AuthService {
     private readonly passwordService: PasswordService,
     private readonly otpService: OtpService,
     private readonly jwtService: JwtService,
+    private readonly mailService: MailService,
   ) {}
 
   /**
@@ -120,6 +122,9 @@ export class AuthService {
       normalizedEmail,
       purpose,
     );
+
+     // ✉️ DISPATCH REAL EMAIL VIA RESEND
+    await this.mailService.sendVerificationOtp(normalizedEmail, otp);
 
     return {
       message: `Code sent to ${normalizedEmail}`,
@@ -409,7 +414,8 @@ export class AuthService {
       );
     }
 
-    await this.otpService.generateAndSaveOtp(normalized, 'LINK_CAMPUS');
+    const otp = await this.otpService.generateAndSaveOtp(normalized, 'LINK_CAMPUS');
+    await this.mailService.sendVerificationOtp(normalized, otp);
 
     return {
       message: `Verification code sent to ${normalized}`,
