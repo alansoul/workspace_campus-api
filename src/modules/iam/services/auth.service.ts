@@ -658,6 +658,7 @@ export class AuthService {
 
     return {
       message: 'Campus email unlinked successfully.',
+       accessToken, // <--- 🚨 ADD THIS LINE!
       user: {
         id: updated.id,
         email: updated.email,
