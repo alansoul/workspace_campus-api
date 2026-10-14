@@ -30,27 +30,14 @@ import type { AuthenticatedUser } from '../guards/jwt-auth.guard.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 
-// 🚨 CRITICAL FOR CROSS-DOMAIN (Render API -> Vercel Frontend):
-// Production cross-site cookies require sameSite: 'none' and secure: true
+// First-Party cookies via Next.js API rewrites
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: isProd,
-  sameSite: isProd ? ('none' as const) : ('lax' as const),
+  sameSite: 'lax' as const, // Safe because of Vercel proxy
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   path: '/',
 };
-
-/**
- * Ensures FRONTEND_URL is an absolute URL with protocol (e.g. https://domain.vercel.app)
- * to prevent Express from treating redirects as relative paths.
- */
-function sanitizeFrontendUrl(rawUrl?: string): string {
-  let url = (rawUrl || 'http://localhost:3000').trim();
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = `https://${url}`;
-  }
-  return url.replace(/\/+$/, ''); // Strip trailing slashes
-}
 
 @Controller(['auth', 'iam'])
 export class AuthController {
@@ -63,18 +50,15 @@ export class AuthController {
   }
 
   // 🌐 GOOGLE OAUTH: Step 1 - Redirect user to Google consent screen
+  // 🚨 FIX: Reverted to standard Guard. Do not pass options object here!
   @Get('google')
   @UseGuards(AuthGuard('google'))
-  googleAuth() {
-    // Passport automatically redirects to Google
-  }
+  googleAuth() {}
 
-  // 🌐 GOOGLE OAUTH: Step 2 - Google redirects back here after user approves
+  // 🌐 GOOGLE OAUTH: Step 2 - Callback after user approves
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleAuthCallback(@Req() req: any, @Res() res: Response) {
-    const frontendUrl = sanitizeFrontendUrl(process.env.FRONTEND_URL);
-
     try {
       const result = await this.authService.handleGoogleOAuthLogin(req.user);
 
@@ -88,13 +72,12 @@ export class AuthController {
         httpOnly: false,
       });
 
-      return res.redirect(`${frontendUrl}/dashboard`);
+      // 🚨 FIX: Use Relative Redirect! Because the proxy forwards this response,
+      // the browser naturally resolves "/dashboard" back to localhost:3000!
+      return res.redirect('/dashboard');
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : 'Google authentication failed';
-      return res.redirect(
-        `${frontendUrl}/login?error=${encodeURIComponent(msg)}`,
-      );
+      const msg = err instanceof Error ? err.message : 'Google auth failed';
+      return res.redirect(`/login?error=${encodeURIComponent(msg)}`);
     }
   }
 
@@ -106,7 +89,7 @@ export class AuthController {
     return this.authService.requestOtp(dto);
   }
 
-  // Passwordless OTP entry for both institutional and personal accounts
+  // Passwordless OTP entry
   @Post(['verify-otp', 'otp/verify'])
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
@@ -116,7 +99,6 @@ export class AuthController {
   ) {
     const result = await this.authService.verifyOtp(dto);
 
-    // If password setup is required, do NOT issue the full session cookie yet
     if (result.requiresPasswordSetup) {
       const { accessToken, token, ...safeData } = result as any;
       return safeData;
@@ -163,7 +145,6 @@ export class AuthController {
     return safeData;
   }
 
-  // 🔑 FORGOT PASSWORD RESET
   @Post('password/reset')
   @HttpCode(HttpStatus.OK)
   async resetPassword(
@@ -212,7 +193,6 @@ export class AuthController {
     return safeData;
   }
 
-  // 🔗 LINK CAMPUS: Request OTP for linking institutional email to personal account
   @Post('campus/link/request')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -226,7 +206,6 @@ export class AuthController {
     );
   }
 
-  // 🔗 LINK CAMPUS: Verify OTP and attach university domain to account
   @Post('campus/link/verify')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -289,7 +268,6 @@ export class AuthController {
     return { message: 'Signed out successfully' };
   }
 
-  // 🔗 UNLINK CAMPUS: Removes university association from personal account
   @Post('campus/unlink')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
