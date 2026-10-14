@@ -17,6 +17,7 @@ import {
   VerifyAndRegisterDto,
   LoginDto,
   SetPasswordDto,
+  ResetPasswordDto,
 } from '../dto/auth.dto.js';
 
 type UserWithRelations = Prisma.UserGetPayload<{
@@ -92,8 +93,8 @@ export class AuthService {
       include: { password: true },
     });
 
-    // LOGIN: account must already exist
-    if (purpose === 'LOGIN') {
+        // LOGIN or RESET_PASSWORD: account must already exist
+    if (purpose === 'LOGIN' || purpose === 'RESET_PASSWORD') {
       if (!existingUser) {
         throw new BadRequestException(
           'No account found with this email. Please sign up first.',
@@ -637,6 +638,141 @@ export class AuthService {
         institutionalEmail: null,
         isEmailVerified: updated.isEmailVerified,
         accountType: 'INDIVIDUAL' as const,
+      },
+    };
+  }
+
+    async resetPassword(dto: ResetPasswordDto) {
+    const normalizedEmail = dto.email.toLowerCase().trim();
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      include: { password: true, university: true },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Account not found.');
+    }
+
+    const isValidOtp = await this.otpService.verifyOtp(
+      normalizedEmail,
+      dto.otp,
+    );
+    if (!isValidOtp) {
+      throw new BadRequestException('Invalid or expired verification code.');
+    }
+
+    const passwordHash = await this.passwordService.hash(dto.newPassword);
+
+    // Update existing password or create if it didn't exist
+    await this.prisma.$transaction(async (tx) => {
+      if (user.password) {
+        await tx.passwordCredential.update({
+          where: { userId: user.id },
+          data: { passwordHash },
+        });
+      } else {
+        await tx.passwordCredential.create({
+          data: { userId: user.id, passwordHash },
+        });
+      }
+    });
+
+    // Automatically log them in after reset
+    const accessToken = await this.signToken(
+      user.id,
+      user.email,
+      user.role,
+      user.universityId ?? '',
+      user.fullName,
+    );
+
+    return {
+      message: 'Password reset successfully!',
+      accessToken,
+      token: accessToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        fullName: user.fullName,
+        branch: user.branch || null,
+        role: user.role,
+        universityId: user.universityId,
+        universityName: user.university ? user.university.name : null,
+        institutionalEmail: (user as any).institutionalEmail ?? null,
+        isEmailVerified: user.isEmailVerified,
+        accountType: user.universityId ? 'INSTITUTIONAL' : 'INDIVIDUAL',
+      },
+    };
+  }
+
+  async handleGoogleOAuthLogin(profile: {
+    email?: string;
+    fullName: string;
+    avatarUrl?: string | null;
+  }) {
+    if (!profile.email) {
+      throw new BadRequestException('Google account did not provide an email.');
+    }
+
+    const normalizedEmail = profile.email.toLowerCase().trim();
+    const resolution = await this.resolveDomain(normalizedEmail);
+
+    if (!resolution.allowed) {
+      throw new UnauthorizedException(
+        'Only @gmail.com or admin-registered university Google accounts are allowed.',
+      );
+    }
+
+    let user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      include: { university: true },
+    });
+
+    if (!user) {
+      const baseUsername =
+        normalizedEmail.split('@')[0].replace(/[^a-z0-9_]/g, '') || 'user';
+      let username = baseUsername;
+
+      const taken = await this.prisma.user.findUnique({ where: { username } });
+      if (taken) {
+        username = `${baseUsername}_${crypto.randomInt(100, 999)}`;
+      }
+
+      user = await this.prisma.user.create({
+        data: {
+          email: normalizedEmail,
+          username,
+          fullName: profile.fullName,
+          avatarUrl: profile.avatarUrl ?? null,
+          role: 'STUDENT',
+          status: 'ACTIVE',
+          isEmailVerified: true,
+          universityId: resolution.university ? resolution.university.id : null,
+        },
+        include: { university: true },
+      });
+    } else if (user.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Your account has been suspended.');
+    }
+
+    const accessToken = await this.signToken(
+      user.id,
+      user.email,
+      user.role,
+      user.universityId,
+      user.fullName,
+    );
+
+    return {
+      accessToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        universityName: user.university?.name ?? null,
+        accountType: user.universityId ? 'INSTITUTIONAL' : 'INDIVIDUAL',
       },
     };
   }

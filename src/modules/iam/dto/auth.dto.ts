@@ -7,7 +7,7 @@ export class RequestOtpDto {
 
   @IsOptional()
   @IsString()
-  purpose?: 'LOGIN' | 'REGISTER';
+  purpose?: 'LOGIN' | 'REGISTER' | 'RESET_PASSWORD'; // 👈 Add RESET_PASSWORD
 }
 
 export class VerifyOtpDto {
@@ -90,4 +90,18 @@ export class LinkCampusVerifyDto {
   @IsString()
   @Length(6, 6, { message: 'OTP must be exactly 6 digits.' })
   otp!: string;
+}
+
+export class ResetPasswordDto {
+  @IsEmail({}, { message: 'Must be a valid email address.' })
+  @IsNotEmpty()
+  email!: string;
+
+  @IsString()
+  @Length(6, 6, { message: 'OTP must be exactly 6 digits.' })
+  otp!: string;
+
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters long.' })
+  newPassword!: string;
 }

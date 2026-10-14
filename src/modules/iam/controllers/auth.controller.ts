@@ -6,9 +6,11 @@ import {
   HttpStatus,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from '../services/auth.service.js';
@@ -18,6 +20,7 @@ import {
   VerifyAndRegisterDto,
   LoginDto,
   SetPasswordDto,
+  ResetPasswordDto,
   LinkCampusRequestDto,
   LinkCampusVerifyDto,
 } from '../dto/auth.dto.js';
@@ -25,10 +28,12 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard.js';
 import { CurrentUser } from '../decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../guards/jwt-auth.guard.js';
 
+const isProd = process.env.NODE_ENV === 'production';
+
 const COOKIE_OPTIONS = {
   httpOnly: true, // 🚨 CRITICAL: JavaScript cannot access this cookie (Prevents XSS)
-  secure: process.env.NODE_ENV === 'production', // Must be true on Vercel/Production
-  sameSite: 'lax' as const, // Protects against CSRF attacks
+  secure: isProd, // True on Render/Vercel HTTPS, false on localhost HTTP
+  sameSite: isProd ? ('none' as const) : ('lax' as const), // 'none' required for Vercel <-> Render cross-origin cookies
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   path: '/',
 };
@@ -42,6 +47,41 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   resolveDomain(@Query('email') email: string) {
     return this.authService.resolveDomain(email || '');
+  }
+
+  // 🌐 GOOGLE OAUTH: Step 1 - Redirect user to Google consent screen
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  googleAuth() {
+    // Passport automatically redirects to Google
+  }
+
+  // 🌐 GOOGLE OAUTH: Step 2 - Google redirects back here after user approves
+  @Get('google/callback')
+  @UseGuards(AuthGuard('google'))
+  async googleAuthCallback(@Req() req: any, @Res() res: Response) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    try {
+      const result = await this.authService.handleGoogleOAuthLogin(req.user);
+
+      res.cookie('token', result.accessToken, COOKIE_OPTIONS);
+      res.cookie('user_role', result.user.role, {
+        ...COOKIE_OPTIONS,
+        httpOnly: false,
+      });
+      res.cookie('account_type', result.user.accountType, {
+        ...COOKIE_OPTIONS,
+        httpOnly: false,
+      });
+
+      return res.redirect(`${frontendUrl}/dashboard`);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : 'Google authentication failed';
+      return res.redirect(
+        `${frontendUrl}/login?error=${encodeURIComponent(msg)}`,
+      );
+    }
   }
 
   // Handles both /request-otp and /otp/request
@@ -93,6 +133,31 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.setPassword(dto);
+
+    if (result.accessToken) {
+      res.cookie('token', result.accessToken, COOKIE_OPTIONS);
+      res.cookie('user_role', result.user.role, {
+        ...COOKIE_OPTIONS,
+        httpOnly: false,
+      });
+      res.cookie('account_type', result.user.accountType, {
+        ...COOKIE_OPTIONS,
+        httpOnly: false,
+      });
+    }
+
+    const { accessToken, token, ...safeData } = result as any;
+    return safeData;
+  }
+
+  // 🔑 FORGOT PASSWORD RESET
+  @Post('password/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.resetPassword(dto);
 
     if (result.accessToken) {
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
@@ -215,7 +280,7 @@ export class AuthController {
     return { message: 'Signed out successfully' };
   }
 
-    // 🔗 UNLINK CAMPUS: Removes university association from personal account
+  // 🔗 UNLINK CAMPUS: Removes university association from personal account
   @Post('campus/unlink')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)

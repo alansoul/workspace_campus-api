@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './controllers/auth.controller.js';
 import { AuthService } from './services/auth.service.js';
 import { PasswordService } from './services/password.service.js';
@@ -7,6 +8,7 @@ import { OtpService } from './services/otp.service.js';
 import { MailService } from './services/mail.service.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { RolesGuard } from './guards/roles.guard.js';
+import { GoogleStrategy } from './strategies/google.strategy.js';
 import { PrismaService } from '../../prisma.service.js';
 
 const jwtSecret = process.env.JWT_SECRET;
@@ -16,6 +18,7 @@ if (!jwtSecret && process.env.NODE_ENV === 'production') {
 
 @Module({
   imports: [
+    PassportModule.register({ defaultStrategy: 'google' }),
     JwtModule.register({
       global: true,
       secret: jwtSecret || 'dev-only-secret-do-not-use-in-prod',
@@ -30,6 +33,7 @@ if (!jwtSecret && process.env.NODE_ENV === 'production') {
     MailService,
     JwtAuthGuard,
     RolesGuard,
+    GoogleStrategy,
     PrismaService,
   ],
   exports: [AuthService, MailService, JwtAuthGuard, RolesGuard],
