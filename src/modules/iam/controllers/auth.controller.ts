@@ -71,7 +71,7 @@ export class AuthController {
     try {
       const result = await this.authService.handleGoogleOAuthLogin(req.user);
 
-      // Set cookies on API domain
+      // Set fallback cookies on the API domain
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
       res.cookie('user_role', result.user.role, {
         ...COOKIE_OPTIONS,
@@ -82,15 +82,14 @@ export class AuthController {
         httpOnly: false,
       });
 
-      // 🚨 CRITICAL FIX: Redirect to Vercel's /auth/callback (NOT /api/auth/session)
-      // This bypasses Next.js /api proxy rewrites and sets first-party cookies on Vercel
-      const bridgeUrl = new URL('/auth/callback', frontendUrl);
-      bridgeUrl.searchParams.set('token', result.accessToken);
-      bridgeUrl.searchParams.set('role', result.user.role);
-      bridgeUrl.searchParams.set('accountType', result.user.accountType);
-      bridgeUrl.searchParams.set('redirect', '/dashboard');
+      // 🚨 REDIRECT DIRECTLY TO /login WITH TOKEN (No 404s, works 100% on Vercel)
+      const targetUrl = new URL('/login', frontendUrl);
+      targetUrl.searchParams.set('token', result.accessToken);
+      targetUrl.searchParams.set('role', result.user.role);
+      targetUrl.searchParams.set('accountType', result.user.accountType);
+      targetUrl.searchParams.set('redirect', '/dashboard');
 
-      return res.redirect(bridgeUrl.toString());
+      return res.redirect(targetUrl.toString());
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : 'Google authentication failed';
