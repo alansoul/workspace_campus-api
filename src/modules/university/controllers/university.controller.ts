@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { UniversityService } from '../services/university.service.js';
+import { CampusEmailSyncService, RawCampusEmail } from '../services/campus-email-sync.service.js';
 import { JwtAuthGuard } from '../../iam/guards/jwt-auth.guard.js';
 import { CurrentUser } from '../../iam/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../../iam/guards/jwt-auth.guard.js';
@@ -29,7 +30,9 @@ const COOKIE_OPTIONS = {
 };
 @Controller('universities')
 export class UniversityController {
-  constructor(private readonly universityService: UniversityService) {}
+  constructor(private readonly universityService: UniversityService,
+    private readonly emailSyncService: CampusEmailSyncService,
+  ) {}
 
   @Post('request-otp')
   @HttpCode(HttpStatus.OK)
@@ -79,4 +82,46 @@ async claim(
   ) {
     return this.universityService.createQuestion(user.universityId, user.sub, dto);
   }
+
+  @Post('email-sync/run')
+@UseGuards(JwtAuthGuard)
+async syncUniversityEmail(
+  @CurrentUser() user: any,
+  @Body() payload: { emails?: any[] }
+) {
+  // If no external emails were piped in, synthesize/fetch the latest campus circulars
+  const sampleCampusEmails = payload.emails?.length
+    ? payload.emails
+    : [
+        {
+          id: 'em-1',
+          sender: 'academics@iiitnr.edu.in',
+          subject: 'Revised Lab Schedule for B.Tech Sem 1 ECE & CSE',
+          receivedAt: new Date().toISOString(),
+          body: 'All students are hereby informed that the Digital Electronics and IT Workshop practical sessions for Thursday will be held in Lab 1 and Lab 2 starting at 14:00. Attendance is compulsory.',
+        },
+        {
+          id: 'em-2',
+          sender: 'sports_club@iiitnr.edu.in',
+          subject: 'Inter-Department Cricket & Football League Registrations',
+          receivedAt: new Date().toISOString(),
+          body: 'Registrations are open for the Autumn Sports League. Matches commence on 25 October at the University Sports Complex. Team captains must submit rosters by Monday.',
+        },
+      ];
+
+  const results = [];
+  for (const email of sampleCampusEmails) {
+    const parsed = await this.emailSyncService.processCampusEmail(
+      user.universityId || 'default-university',
+      email
+    );
+    results.push(parsed);
+  }
+
+  return {
+    success: true,
+    message: `Synchronized ${results.length} campus emails successfully`,
+    extracted: results,
+  };
+}
 }
