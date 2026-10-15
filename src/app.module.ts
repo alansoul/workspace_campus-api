@@ -13,7 +13,7 @@ import { ChatModule } from './modules/chat/chat.module.js';
   imports: [
     ThrottlerModule.forRoot([{
       ttl: 60000, // 1 minute window
-      limit: 30,  // max 30 requests per minute globally
+      limit: 50,  // max 50 requests per minute globally
     }]),
     IamModule,
     UniversityModule,
