@@ -57,10 +57,16 @@ model User {
   status          AccountStatus @default(ACTIVE)
   isEmailVerified Boolean       @default(false)
 
+  // 🔒 Gmail MCP Token Storage (Crucial for the AI Plugin system)
+  gmailRefreshToken  String?   @db.Text
+  gmailAccessToken   String?   @db.Text
+  gmailConnectedAt   DateTime?
+
   universityId        String?
   institutionalEmail  String?       @unique
-  university          University?   @relation(fields: [universityId], references: [id], onDelete: Cascade)
-
+  
+  // 🚨 SECURITY FIX: Must be SetNull to prevent cascading deletion of students
+  university          University?   @relation(fields: [universityId], references: [id], onDelete: SetNull)
 
   password        PasswordCredential?
   sessions        Session[]
