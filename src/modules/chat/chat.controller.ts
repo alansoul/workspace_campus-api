@@ -15,6 +15,7 @@ import multer from 'multer';
 import { extname, join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import type { Response } from 'express';
+import { AccessToken } from 'livekit-server-sdk';
 import { ChatService } from './chat.service.js';
 
 const uploadDir = './uploads';
@@ -25,6 +26,52 @@ if (!existsSync(uploadDir)) {
 @Controller('chat')
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
+
+  /**
+   * 🎟️ LIVEKIT SFU TOKEN GENERATION
+   * Issues cryptographically signed JWT tokens for video/voice call rooms
+   */
+  @Get('livekit/token')
+  async getLiveKitToken(
+    @Query('room') room: string,
+    @Query('userId') queryUserId?: string,
+    @Query('username') queryUsername?: string,
+  ) {
+    if (!room) {
+      throw new BadRequestException('Room query parameter is required.');
+    }
+
+    const apiKey = process.env.LIVEKIT_API_KEY;
+    const apiSecret = process.env.LIVEKIT_API_SECRET;
+
+    if (!apiKey || !apiSecret) {
+      throw new BadRequestException(
+        'LiveKit credentials (LIVEKIT_API_KEY, LIVEKIT_API_SECRET) are not configured on the backend.',
+      );
+    }
+
+    const identity =
+      queryUserId || `user_${Math.random().toString(36).substring(2, 9)}`;
+    const name = queryUsername || 'Campus Peer';
+
+    // Create an authenticated access token valid for 4 hours
+    const at = new AccessToken(apiKey, apiSecret, {
+      identity,
+      name,
+      ttl: '4h',
+    });
+
+    // Grant full call permissions: join, publish audio/video, subscribe, and screen share
+    at.addGrant({
+      room,
+      roomJoin: true,
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: true,
+    });
+
+    return { token: await at.toJwt() };
+  }
 
   @Get('channels')
   async getChannels(@Query('userId') userId?: string) {
@@ -59,7 +106,10 @@ export class ChatController {
     return this.chatService.getMessages(channelId, limit ? parseInt(limit, 10) : 50);
   }
 
-  // Upload endpoint for PDFs, Images, and Documents
+  /**
+   * 📤 FILE UPLOAD ENDPOINT
+   * Supports Images, Videos, PDFs, and Documents up to 100 MB
+   */
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -71,34 +121,50 @@ export class ChatController {
           cb(null, `${uniqueSuffix}${ext}`);
         },
       }),
-      limits: { fileSize: 30 * 1024 * 1024 }, // 30 MB maximum
+      limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB limit
     }),
   )
   uploadFile(@UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException('No file uploaded');
+    if (!file) {
+      throw new BadRequestException('No file uploaded or file exceeds the 100MB limit.');
+    }
 
     let fileType = 'DOCUMENT';
     if (file.mimetype.startsWith('image/')) {
       fileType = 'IMAGE';
+    } else if (file.mimetype.startsWith('video/')) {
+      fileType = 'VIDEO';
     } else if (file.mimetype === 'application/pdf') {
       fileType = 'PDF';
     }
 
+    const backendUrl =
+      process.env.BACKEND_URL ||
+      (process.env.NODE_ENV === 'production'
+        ? 'https://workspace-campus-api.onrender.com'
+        : 'http://localhost:4000');
+
     return {
-      fileUrl: `/chat/files/${file.filename}`,
+      fileUrl: `${backendUrl}/api/chat/files/${file.filename}`,
       fileName: file.originalname,
       fileType,
       fileSize: file.size,
     };
   }
 
-  // Serve uploaded files
+  /**
+   * 📥 SERVE UPLOADED MEDIA FILES
+   * Delivers static files with Cross-Origin headers to avoid CORS/CORP blocked previews
+   */
   @Get('files/:filename')
   getFile(@Param('filename') filename: string, @Res() res: Response) {
     const filePath = join(process.cwd(), 'uploads', filename);
     if (!existsSync(filePath)) {
       return res.status(404).send('File not found');
     }
+
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
     return res.sendFile(filePath);
   }
 }
