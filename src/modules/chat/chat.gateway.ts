@@ -25,6 +25,7 @@ function parseCookie(cookieString?: string): Record<string, string> {
 
 const allowedOrigins = [
   'http://localhost:3000',
+  'https://workspace-campus-web.vercel.app', // 👈 Explicitly allow live Vercel domain
   ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
 ];
 
