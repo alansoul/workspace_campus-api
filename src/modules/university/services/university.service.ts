@@ -101,7 +101,7 @@ export class UniversityService {
     }
 
     const existingDomain = await this.prisma.universityDomain.findFirst({
-      where: { domain: { in: domains } },
+      where: { domain: { in: domains, mode: 'insensitive' } },
     });
 
     if (existingDomain) {
@@ -118,10 +118,9 @@ export class UniversityService {
     // 1. Generate and save the OTP
     const otp = await this.otpService.generateAndSaveOtp(email);
 
-    // 2. Dispatch real email via Resend (and log to backend terminal)
+    // 2. Dispatch real email via Resend
     await this.mailService.sendVerificationOtp(email, otp);
 
-    // 3. Production safe: NEVER return devOtp in the response payload
     return {
       message: `Verification code sent to ${email}`,
     };
@@ -161,9 +160,8 @@ export class UniversityService {
       }
     }
 
-
     const existingDomain = await this.prisma.universityDomain.findFirst({
-      where: { domain: { in: domains } },
+      where: { domain: { in: domains, mode: 'insensitive' } },
     });
     if (existingDomain) {
       throw new ConflictException(`Domain @${existingDomain.domain} is already registered.`);
@@ -181,7 +179,7 @@ export class UniversityService {
       throw new ConflictException('An account with this email already exists.');
     }
 
-     // 4. Verify OTP only after all uniqueness constraints pass
+    // Verify OTP
     const isValidOtp = await this.otpService.verifyOtp(email, dto.otp);
     if (!isValidOtp) {
       throw new BadRequestException('Invalid or expired verification code.');
@@ -203,10 +201,10 @@ export class UniversityService {
           shortCode,
           contactName,
           contactEmail: email,
-          status: 'ACTIVE',
+          status: 'ACTIVE', // Automatically creates with ACTIVE status
           domains: {
             create: domains.map((domain, idx) => ({
-              domain,
+              domain: domain.toLowerCase().trim(),
               isPrimary: idx === 0,
               isVerified: true,
             })),
@@ -265,9 +263,21 @@ export class UniversityService {
     };
   }
 
-  async getNotes(universityId: string) {
+  /**
+   * Fetches notes scoped to the university, with optional branch & semester filtering
+   */
+  async getNotes(universityId: string, branch?: string, semester?: number) {
+    const whereClause: {
+      universityId: string;
+      branch?: string;
+      semester?: number;
+    } = { universityId };
+
+    if (branch) whereClause.branch = branch;
+    if (semester) whereClause.semester = Number(semester);
+
     return this.prisma.note.findMany({
-      where: { universityId },
+      where: whereClause,
       include: { author: { select: { fullName: true } } },
       orderBy: { createdAt: 'desc' },
     });

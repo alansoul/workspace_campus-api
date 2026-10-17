@@ -36,41 +36,77 @@ export class AuthService {
   ) {}
 
   /**
-   * CORE DOMAIN LOGIC
-   * 1. Personal: @gmail.com only -> NO university attached
-   * 2. Campus: domain must be admin-registered + ACTIVE
+   * Helper to find user by EITHER primary email OR linked institutional email
    */
-  async resolveDomain(email: string) {
-    const normalized = email.toLowerCase().trim();
-    const domain = normalized.split('@')[1];
-    if (!domain) return { allowed: false, error: 'INVALID_EMAIL' };
+  private async findUserByAnyEmail(email: string): Promise<UserWithRelations | null> {
+    return this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: email },
+          { institutionalEmail: email } // 🔧 UPDATED: Removed 'as any' since Prisma types are generated
+        ]
+      },
+      include: { university: true, password: true },
+    }) as Promise<UserWithRelations | null>;
+  }
+
+  /**
+   * CORE DOMAIN LOGIC
+   * Accepts either full email ("rohan@nancy.edu.in") or domain ("nancy.edu.in")
+   */
+  async resolveDomain(emailOrDomain: string) {
+    const normalized = emailOrDomain.toLowerCase().trim();
+    const domain = normalized.includes('@')
+      ? normalized.split('@')[1]?.trim()
+      : normalized;
+
+    if (!domain || !domain.includes('.')) {
+      return {
+        allowed: false,
+        isRegistered: false,
+        error: 'INVALID_EMAIL',
+      };
+    }
 
     // RULE 1: Gmail = individual (never attach a default university)
     if (domain === 'gmail.com') {
       return {
         allowed: true,
+        isRegistered: true,
         domain,
         isGmail: true,
         isUniversity: false,
+        universityName: null,
         university: null,
       };
     }
 
     // RULE 2: Registered campus domain
     const domainRecord = await this.prisma.universityDomain.findFirst({
-      where: { domain, isVerified: true, university: { status: 'ACTIVE' } },
+      where: {
+        domain: { equals: domain, mode: 'insensitive' },
+        isVerified: true,
+        university: { status: { not: 'SUSPENDED' } },
+      },
       include: { university: true },
     });
 
     if (!domainRecord) {
-      return { allowed: false, error: 'DOMAIN_UNREGISTERED', domain };
+      return {
+        allowed: false,
+        isRegistered: false,
+        error: 'DOMAIN_UNREGISTERED',
+        domain,
+      };
     }
 
     return {
       allowed: true,
-      domain,
+      isRegistered: true,
+      domain: domainRecord.domain,
       isGmail: false,
       isUniversity: true,
+      universityName: domainRecord.university.name,
       university: {
         id: domainRecord.university.id,
         name: domainRecord.university.name,
@@ -90,23 +126,24 @@ export class AuthService {
       );
     }
 
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      include: { password: true },
-    });
+    const existingUser = await this.findUserByAnyEmail(normalizedEmail);
 
-        // LOGIN or RESET_PASSWORD: account must already exist
-    if (purpose === 'LOGIN' || purpose === 'RESET_PASSWORD') {
-      if (!existingUser) {
-        throw new BadRequestException(
-          'No account found with this email. Please sign up first.',
-        );
-      }
-      if (existingUser.status !== 'ACTIVE') {
-        throw new UnauthorizedException(
-          'Your account has been deactivated or suspended.',
-        );
-      }
+    // 1. RESET_PASSWORD always requires an existing account
+    // 2. LOGIN requires an existing account for @gmail.com (university emails can auto-onboard)
+    // (Tip: If you want university emails to ALSO require Sign Up first, remove `&& resolution.isGmail`)
+    if (
+      (purpose === 'RESET_PASSWORD' && !existingUser) ||
+      (purpose === 'LOGIN' && !existingUser && resolution.isGmail)
+    ) {
+      throw new BadRequestException(
+        'No account found with this email. Please sign up first.',
+      );
+    }
+
+    if (existingUser && existingUser.status !== 'ACTIVE') {
+      throw new UnauthorizedException(
+        'Your account has been deactivated or suspended.',
+      );
     }
 
     // REGISTER: block finished accounts
@@ -123,12 +160,16 @@ export class AuthService {
       purpose,
     );
 
-     // ✉️ DISPATCH REAL EMAIL VIA RESEND
+    // ✉️ DISPATCH REAL EMAIL VIA RESEND
     await this.mailService.sendVerificationOtp(normalizedEmail, otp);
 
+    const shouldExposeDevOtp =
+      process.env.EXPOSE_DEV_OTP === 'true' &&
+      process.env.NODE_ENV !== 'production';
+
     return {
-      message: `Code sent to ${normalizedEmail}`,
-      ...(process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}),
+      message: `Verification code sent to ${normalizedEmail}`,
+      ...(shouldExposeDevOtp ? { devOtp: otp } : {}),
     };
   }
 
@@ -162,21 +203,25 @@ export class AuthService {
       );
     }
 
-    let user: UserWithRelations | null = await this.prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      include: { university: true, password: true },
-    });
+    let user = await this.findUserByAnyEmail(normalizedEmail);
 
-    // Create only on signup (fullName present). Never on random LOGIN.
+    // Block unregistered @gmail.com on Sign In; allow signup (fullName present) or verified university email
     if (!user) {
-      if (!dto.fullName?.trim()) {
+      if (!dto.fullName?.trim() && resolution.isGmail) {
         throw new BadRequestException(
           'No account found with this email. Please sign up first.',
         );
       }
 
+      const emailPrefix = normalizedEmail.split('@')[0] || 'user';
+      const defaultName =
+        dto.fullName?.trim() ||
+        emailPrefix
+          .replace(/[._-]+/g, ' ')
+          .replace(/\b\w/g, (char) => char.toUpperCase());
+
       const baseUsername =
-        normalizedEmail.split('@')[0].replace(/[^a-z0-9_]/g, '') || 'user';
+        emailPrefix.replace(/[^a-z0-9_]/g, '') || 'user';
       let username = baseUsername;
 
       const existingUsername = await this.prisma.user.findUnique({
@@ -189,17 +234,17 @@ export class AuthService {
       const createData: Prisma.UserUncheckedCreateInput = {
         email: normalizedEmail,
         username,
-        fullName: dto.fullName.trim(),
+        fullName: defaultName,
         role: 'STUDENT',
         status: 'ACTIVE',
         isEmailVerified: true,
         universityId: targetUniversity ? targetUniversity.id : null,
       };
 
-      user = await this.prisma.user.create({
+      user = (await this.prisma.user.create({
         data: createData,
         include: { university: true, password: true },
-      });
+      })) as UserWithRelations;
     } else {
       if (user.status !== 'ACTIVE') {
         throw new UnauthorizedException(
@@ -216,14 +261,14 @@ export class AuthService {
         !user.isEmailVerified ||
         (dto.fullName && dto.fullName !== user.fullName)
       ) {
-        user = await this.prisma.user.update({
+        user = (await this.prisma.user.update({
           where: { id: user.id },
           data: {
             isEmailVerified: true,
             ...(dto.fullName ? { fullName: dto.fullName.trim() } : {}),
           },
           include: { university: true, password: true },
-        });
+        })) as UserWithRelations;
       }
     }
 
@@ -233,7 +278,7 @@ export class AuthService {
 
     const hasPassword = Boolean(user.password);
 
-    // First-time: force password setup (no session cookie yet)
+    // First-time: force password setup
     if (!hasPassword) {
       await this.otpService.markPasswordSetupVerified(normalizedEmail);
       return {
@@ -241,23 +286,23 @@ export class AuthService {
         requiresPasswordSetup: true,
         user: {
           id: user.id,
-          email: user.email,
+          email: normalizedEmail,
           username: user.username,
           fullName: user.fullName,
           role: user.role,
           universityId: user.universityId,
           universityName: user.university ? user.university.name : null,
-          institutionalEmail: (user as any).institutionalEmail ?? null,
+          institutionalEmail: user.institutionalEmail ?? null,
           isEmailVerified: user.isEmailVerified,
           accountType: user.universityId ? 'INSTITUTIONAL' : 'INDIVIDUAL',
         },
       };
     }
 
-    // Returning user with password: full login
+    // Returning user with password: full login using the exact email they signed in with
     const accessToken = await this.signToken(
       user.id,
-      user.email,
+      normalizedEmail,
       user.role,
       user.universityId,
       user.fullName,
@@ -270,27 +315,24 @@ export class AuthService {
       token: accessToken,
       user: {
         id: user.id,
-        email: user.email,
+        email: normalizedEmail,
         username: user.username,
         fullName: user.fullName,
         branch: user.branch || null,
         role: user.role,
         universityId: user.universityId,
         universityName: user.university ? user.university.name : null,
-        institutionalEmail: (user as any).institutionalEmail ?? null,
+        institutionalEmail: user.institutionalEmail ?? null,
         isEmailVerified: user.isEmailVerified,
         accountType: user.universityId ? 'INSTITUTIONAL' : 'INDIVIDUAL',
       },
     };
   }
 
- async setPassword(dto: SetPasswordDto) {
+  async setPassword(dto: SetPasswordDto) {
     const normalizedEmail = dto.email.toLowerCase().trim();
 
-    const user = await this.prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      include: { password: true, university: true },
-    });
+    const user = await this.findUserByAnyEmail(normalizedEmail);
 
     if (!user) {
       throw new BadRequestException(
@@ -310,7 +352,6 @@ export class AuthService {
       );
     }
 
-    // 🚨 SECURITY GATE: Verify the 10-minute Redis setup ticket from verifyOtp
     const isAuthorized =
       await this.otpService.consumePasswordSetupVerified(normalizedEmail);
     if (!isAuthorized) {
@@ -364,20 +405,16 @@ export class AuthService {
         role: refreshed.role,
         universityId: refreshed.universityId,
         universityName: refreshed.university ? refreshed.university.name : null,
-        institutionalEmail: (refreshed as any).institutionalEmail ?? null,
+        institutionalEmail: refreshed.institutionalEmail ?? null, // 🔧 UPDATED: Removed '(refreshed as any)'
         isEmailVerified: refreshed.isEmailVerified,
         accountType: refreshed.universityId ? 'INSTITUTIONAL' : 'INDIVIDUAL',
       },
     };
   }
 
-  /**
-   * Personal Gmail -> link official campus email (OTP to campus inbox)
-   * Login email stays Gmail; universityId + institutionalEmail get set.
-   */
   async requestLinkCampus(userId: string, institutionalEmail: string) {
     const normalized = institutionalEmail.toLowerCase().trim();
-    const domain = normalized.split('@')[1];
+    const domain = normalized.split('@')[1]?.trim();
 
     if (!domain || domain === 'gmail.com') {
       throw new BadRequestException(
@@ -395,7 +432,8 @@ export class AuthService {
     const me = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!me) throw new UnauthorizedException('User no longer exists.');
 
-    if (me.universityId && (me as any).institutionalEmail) {
+    // 🔧 UPDATED: Safely checked `me.institutionalEmail` directly without `as any`
+    if (me.universityId && me.institutionalEmail) {
       throw new ConflictException(
         'A university email is already linked to this account.',
       );
@@ -403,7 +441,8 @@ export class AuthService {
 
     const taken = await this.prisma.user.findFirst({
       where: {
-        OR: [{ email: normalized }, { institutionalEmail: normalized } as any],
+        // 🔧 UPDATED: Removed `as any` from the OR clause since Prisma now correctly knows this field
+        OR: [{ email: normalized }, { institutionalEmail: normalized }],
         NOT: { id: userId },
       },
     });
@@ -442,10 +481,11 @@ export class AuthService {
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
+      // 🔧 UPDATED: Removed `as any` from data payload
       data: {
         institutionalEmail: normalized,
         universityId: resolution.university.id,
-      } as any,
+      },
       include: { university: true },
     });
 
@@ -459,6 +499,7 @@ export class AuthService {
 
     return {
       message: 'Campus email linked successfully!',
+      accessToken,
       user: {
         id: updated.id,
         email: updated.email,
@@ -468,7 +509,7 @@ export class AuthService {
         role: updated.role,
         universityId: updated.universityId,
         universityName: updated.university?.name ?? null,
-        institutionalEmail: (updated as any).institutionalEmail ?? normalized,
+        institutionalEmail: updated.institutionalEmail ?? normalized, // 🔧 UPDATED: Removed '(updated as any)'
         isEmailVerified: updated.isEmailVerified,
         accountType: 'INSTITUTIONAL' as const,
       },
@@ -532,6 +573,7 @@ export class AuthService {
           role: user.role,
           universityId: user.universityId,
           universityName: user.university ? user.university.name : null,
+          institutionalEmail: user.institutionalEmail ?? null, // 🔧 UPDATED: Consistent typing added
           isEmailVerified: user.isEmailVerified,
           accountType: 'INSTITUTIONAL' as const,
         },
@@ -552,10 +594,8 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
-      include: { password: true, university: true },
-    });
+    const normalizedEmail = dto.email.toLowerCase().trim();
+    const user = await this.findUserByAnyEmail(normalizedEmail);
 
     if (!user || !user.password) {
       throw new UnauthorizedException(
@@ -584,7 +624,7 @@ export class AuthService {
 
     const accessToken = await this.signToken(
       user.id,
-      user.email,
+      normalizedEmail,
       user.role,
       user.universityId,
       user.fullName,
@@ -595,21 +635,21 @@ export class AuthService {
       token: accessToken,
       user: {
         id: user.id,
-        email: user.email,
+        email: normalizedEmail,
         username: user.username,
         fullName: user.fullName,
         branch: user.branch || null,
         role: user.role,
         universityId: user.universityId,
         universityName: user.university ? user.university.name : null,
-        institutionalEmail: (user as any).institutionalEmail ?? null,
+        institutionalEmail: user.institutionalEmail ?? null,
         isEmailVerified: user.isEmailVerified,
         accountType: user.universityId ? 'INSTITUTIONAL' : 'INDIVIDUAL',
       },
     };
   }
 
-  async getProfile(userId: string) {
+  async getProfile(userId: string, sessionEmail?: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -619,9 +659,17 @@ export class AuthService {
 
     if (!user) throw new UnauthorizedException('User no longer exists.');
 
+    // Show the exact email they used to sign in (either Gmail or linked institutional email)
+    const activeLoginEmail =
+      sessionEmail &&
+      (sessionEmail === user.email || sessionEmail === user.institutionalEmail)
+        ? sessionEmail
+        : user.email;
+
     return {
       id: user.id,
-      email: user.email,
+      email: activeLoginEmail,
+      primaryEmail: user.email,
       username: user.username,
       fullName: user.fullName,
       name: user.fullName,
@@ -629,15 +677,12 @@ export class AuthService {
       role: user.role,
       universityId: user.universityId,
       universityName: user.university ? user.university.name : null,
-      institutionalEmail: (user as any).institutionalEmail ?? null,
+      institutionalEmail: user.institutionalEmail ?? null,
       isEmailVerified: user.isEmailVerified,
       accountType: user.universityId ? 'INSTITUTIONAL' : 'INDIVIDUAL',
     };
   }
 
-    /**
-   * Unlinks university email & sets accountType back to INDIVIDUAL
-   */
   async unlinkCampus(userId: string) {
     const updated = await this.prisma.user.update({
       where: { id: userId },
@@ -658,7 +703,7 @@ export class AuthService {
 
     return {
       message: 'Campus email unlinked successfully.',
-       accessToken, // <--- 🚨 ADD THIS LINE!
+      accessToken,
       user: {
         id: updated.id,
         email: updated.email,
@@ -675,13 +720,10 @@ export class AuthService {
     };
   }
 
-    async resetPassword(dto: ResetPasswordDto) {
+  async resetPassword(dto: ResetPasswordDto) {
     const normalizedEmail = dto.email.toLowerCase().trim();
 
-    const user = await this.prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      include: { password: true, university: true },
-    });
+    const user = await this.findUserByAnyEmail(normalizedEmail);
 
     if (!user) {
       throw new BadRequestException('Account not found.');
@@ -697,7 +739,6 @@ export class AuthService {
 
     const passwordHash = await this.passwordService.hash(dto.newPassword);
 
-    // Update existing password or create if it didn't exist
     await this.prisma.$transaction(async (tx) => {
       if (user.password) {
         await tx.passwordCredential.update({
@@ -711,12 +752,11 @@ export class AuthService {
       }
     });
 
-    // Automatically log them in after reset
     const accessToken = await this.signToken(
       user.id,
       user.email,
       user.role,
-      user.universityId ?? '',
+      user.universityId || null,
       user.fullName,
     );
 
@@ -733,7 +773,7 @@ export class AuthService {
         role: user.role,
         universityId: user.universityId,
         universityName: user.university ? user.university.name : null,
-        institutionalEmail: (user as any).institutionalEmail ?? null,
+        institutionalEmail: user.institutionalEmail ?? null, // 🔧 UPDATED: Removed '(user as any)'
         isEmailVerified: user.isEmailVerified,
         accountType: user.universityId ? 'INSTITUTIONAL' : 'INDIVIDUAL',
       },
@@ -805,6 +845,7 @@ export class AuthService {
         email: user.email,
         role: user.role,
         universityName: user.university?.name ?? null,
+        institutionalEmail: user.institutionalEmail ?? null, // 🔧 UPDATED: Added for consistency
         accountType: user.universityId ? 'INSTITUTIONAL' : 'INDIVIDUAL',
       },
     };
@@ -821,7 +862,7 @@ export class AuthService {
       sub: userId,
       email,
       role,
-      universityId: universityId ?? '',
+      universityId: universityId || null,
       fullName,
     });
   }

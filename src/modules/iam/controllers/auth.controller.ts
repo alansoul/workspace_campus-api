@@ -53,8 +53,11 @@ export class AuthController {
 
   @Get('resolve-domain')
   @HttpCode(HttpStatus.OK)
-  resolveDomain(@Query('email') email: string) {
-    return this.authService.resolveDomain(email || '');
+  resolveDomain(
+    @Query('email') email?: string,
+    @Query('domain') domain?: string,
+  ) {
+    return this.authService.resolveDomain(email || domain || '');
   }
 
   // 🌐 GOOGLE OAUTH: Step 1 - Redirect user to Google consent screen
@@ -82,7 +85,7 @@ export class AuthController {
         httpOnly: false,
       });
 
-      // 🚨 REDIRECT DIRECTLY TO /login WITH TOKEN (No 404s, works 100% on Vercel)
+      // Redirect directly to /login with token for Vercel first-party cookie hydration
       const targetUrl = new URL('/login', frontendUrl);
       targetUrl.searchParams.set('token', result.accessToken);
       targetUrl.searchParams.set('role', result.user.role);
@@ -100,14 +103,14 @@ export class AuthController {
   }
 
   @Post(['request-otp', 'otp/request'])
-  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   requestOtp(@Body() dto: RequestOtpDto) {
     return this.authService.requestOtp(dto);
   }
 
   @Post(['verify-otp', 'otp/verify'])
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async verifyOtp(
     @Body() dto: VerifyOtpDto,
@@ -116,11 +119,15 @@ export class AuthController {
     const result = await this.authService.verifyOtp(dto);
 
     if (result.requiresPasswordSetup) {
-      const { accessToken, token, ...safeData } = result as any;
+      const {
+        accessToken: _accessToken,
+        token: _token,
+        ...safeData
+      } = result as any;
       return safeData;
     }
 
-    const { accessToken, token, ...safeData } = result as any;
+    const { accessToken, token: _token, ...safeData } = result as any;
 
     if (accessToken) {
       res.cookie('token', accessToken, COOKIE_OPTIONS);
@@ -157,7 +164,11 @@ export class AuthController {
       });
     }
 
-    const { accessToken, token, ...safeData } = result as any;
+    const {
+      accessToken: _accessToken,
+      token: _token,
+      ...safeData
+    } = result as any;
     return safeData;
   }
 
@@ -181,7 +192,11 @@ export class AuthController {
       });
     }
 
-    const { accessToken, token, ...safeData } = result as any;
+    const {
+      accessToken: _accessToken,
+      token: _token,
+      ...safeData
+    } = result as any;
     return safeData;
   }
 
@@ -205,7 +220,11 @@ export class AuthController {
       });
     }
 
-    const { accessToken, token, ...safeData } = result as any;
+    const {
+      accessToken: _accessToken,
+      token: _token,
+      ...safeData
+    } = result as any;
     return safeData;
   }
 
@@ -230,18 +249,23 @@ export class AuthController {
     @Body() dto: LinkCampusVerifyDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.verifyLinkCampus(
-      user.sub,
-      dto.institutionalEmail,
-      dto.otp,
-    );
+    const { accessToken, ...safeResult } =
+      await this.authService.verifyLinkCampus(
+        user.sub,
+        dto.institutionalEmail,
+        dto.otp,
+      );
+
+    if (accessToken) {
+      res.cookie('token', accessToken, COOKIE_OPTIONS);
+    }
 
     res.cookie('account_type', 'INSTITUTIONAL', {
       ...COOKIE_OPTIONS,
       httpOnly: false,
     });
 
-    return result;
+    return safeResult;
   }
 
   @Post('verify-and-register')
@@ -251,7 +275,7 @@ export class AuthController {
     @Body() dto: VerifyAndRegisterDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { accessToken, token, ...safeData } =
+    const { accessToken, token: _token, ...safeData } =
       await this.authService.verifyAndRegister(dto);
 
     res.cookie('token', accessToken, COOKIE_OPTIONS);
@@ -271,7 +295,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async getProfile(@CurrentUser() user: AuthenticatedUser) {
-    const profile = await this.authService.getProfile(user.sub);
+    const profile = await this.authService.getProfile(user.sub, user.email);
     return { user: profile };
   }
 
@@ -291,14 +315,19 @@ export class AuthController {
     @CurrentUser() user: AuthenticatedUser,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.unlinkCampus(user.sub);
+    const { accessToken, ...safeResult } =
+      await this.authService.unlinkCampus(user.sub);
+
+    if (accessToken) {
+      res.cookie('token', accessToken, COOKIE_OPTIONS);
+    }
 
     res.cookie('account_type', 'INDIVIDUAL', {
       ...COOKIE_OPTIONS,
       httpOnly: false,
     });
 
-    return result;
+    return safeResult;
   }
 }
 

@@ -1,0 +1,44 @@
+model Channel {
+  id          String          @id @default(uuid())
+  name        String          @unique
+  description String?
+  isDirect    Boolean         @default(false)
+  createdById String          @default("system")
+  createdAt   DateTime        @default(now())
+  messages    ChatMessage[]
+  members     ChannelMember[]
+
+  @@schema("chat")
+  @@map("channels")
+}
+
+model ChannelMember {
+  id        String   @id @default(uuid())
+  channelId String
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String
+  role      String   @default("MEMBER") // ADMIN, MEMBER
+  joinedAt  DateTime @default(now())
+
+  @@unique([channelId, userId])
+  @@schema("chat")
+  @@map("channel_members")
+}
+
+model ChatMessage {
+  id         String   @id @default(uuid())
+  content    String
+  channelId  String
+  channel    Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  senderId   String
+  senderName String
+  fileUrl    String?
+  fileType   String?  // 'IMAGE' | 'PDF' | 'DOCUMENT'
+  fileName   String?
+  fileSize   Int?
+  createdAt  DateTime @default(now())
+
+  @@index([channelId, createdAt])
+  @@schema("chat")
+  @@map("chat_messages")
+}
