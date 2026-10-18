@@ -190,26 +190,44 @@ export class GoogleGmailService {
   }
 
   /**
-   * Calls Google Gmail API and retrieves real emails with full decoded bodies
+   * Calls Google Gmail API and retrieves strictly campus and academic emails
+   * Filters out personal services (GitHub, Google security alerts, social media)
    */
-  async fetchRecentInboxEmails(userId: string, maxResults = 8) {
+  async fetchRecentInboxEmails(userId: string, maxResults = 10) {
     const accessToken = await this.getValidAccessToken(userId);
     if (!accessToken) return [];
 
     try {
-      // 1. List messages from INBOX
-      const listRes = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=label:INBOX&maxResults=${maxResults}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-      );
+      // 1. Strict academic query: targets official campus domains and academic circular keywords
+      // Excludes third-party platform notifications and security alerts
+      const academicFilter = [
+        'label:INBOX',
+        '(from:(@iiitnr.edu.in) OR from:(edu.in) OR from:(ac.in) OR subject:(notice OR circular OR timetable OR assignment OR exam OR schedule OR quiz OR attendance OR coursework OR result OR seminar OR lecture))',
+        '-from:(github.com)',
+        '-from:(accounts.google.com)',
+        '-from:(notifications.google.com)',
+        '-from:(linkedin.com)',
+        '-subject:("security alert")',
+        '-subject:("OAuth application")',
+      ].join(' ');
+
+      const queryUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
+        academicFilter,
+      )}&maxResults=${maxResults}`;
+
+      const listRes = await fetch(queryUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
 
       if (!listRes.ok) return [];
 
       const listData = (await listRes.json()) as { messages?: Array<{ id: string }> };
       if (!listData.messages || listData.messages.length === 0) return [];
 
-      // 2. Fetch full detail for each email
+      // 2. Fetch full detail for each email with secondary safety checks
       const emails = [];
+      const excludedSenders = ['github.com', 'accounts.google.com', 'no-reply@', 'noreply@'];
+
       for (const msg of listData.messages) {
         const msgRes = await fetch(
           `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
@@ -223,6 +241,14 @@ export class GoogleGmailService {
             headers.find((h) => h.name.toLowerCase() === 'subject')?.value || 'No Subject';
           const sender =
             headers.find((h) => h.name.toLowerCase() === 'from')?.value || 'Unknown Sender';
+
+          // In-memory guard: Skip if sender is an excluded commercial/system service
+          const lowerSender = sender.toLowerCase();
+          const isSystemSpam = excludedSenders.some((domain) => lowerSender.includes(domain));
+          if (isSystemSpam && !lowerSender.includes('iiitnr.edu.in')) {
+            continue;
+          }
+
           const decodedBody =
             this.extractBodyFromPayload(fullMsg.payload) || fullMsg.snippet || '';
           const isUnread = Boolean(fullMsg.labelIds?.includes('UNREAD'));
@@ -241,7 +267,7 @@ export class GoogleGmailService {
       return emails;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Failed to fetch emails via Gmail API: ${msg}`);
+      this.logger.warn(`Failed to fetch academic emails via Gmail API: ${msg}`);
       return [];
     }
   }
