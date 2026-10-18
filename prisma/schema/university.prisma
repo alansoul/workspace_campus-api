@@ -1,3 +1,9 @@
+// campus-api/prisma/schema/university.prisma
+
+// ==========================================
+// 1. NOTES, QUESTIONS & COMPLAINTS (ORIGINAL)
+// ==========================================
+
 model Note {
   id           String     @id @default(uuid())
   title        String
@@ -59,5 +65,99 @@ enum ComplaintStatus {
   UNDER_REVIEW
   RESOLVED
 
+  @@schema("university")
+}
+
+// ==========================================
+// 2. ACADEMIC WORKSPACE MODELS (NEW)
+// ==========================================
+
+model Notice {
+  id             String     @id @default(uuid())
+  title          String
+  category       String     @default("General")
+  summary        String     @db.Text
+  attachmentName String?
+  attachmentUrl  String?
+  isImportant    Boolean    @default(false)
+  isUnread       Boolean    @default(true)
+  dateStr        String?
+
+  authorId       String?
+  authorName     String?
+  universityId   String
+
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([universityId])
+  @@schema("university")
+}
+
+model CampusEvent {
+  id           String     @id @default(uuid())
+  title        String
+  category     String     @default("Club")
+  timingBadge  String?    @default("Upcoming")
+  description  String     @db.Text
+  dateTimeStr  String
+  venue        String
+  isInterested Boolean    @default(false)
+  organizer    String     @default("Campus Community") // e.g. "Cipher Cell" or "Student Council"
+  organizerContact String? // email or phone
+
+  authorId     String?
+  universityId String
+
+  attendees    Json       @default("[]")
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([universityId])
+  @@schema("university")
+}
+
+model Assignment {
+  id          String     @id @default(uuid())
+  title       String
+  subject     String
+  status      String     @default("Not Started")
+  priority    String     @default("Medium")
+  description String?    @db.Text
+  faculty     String?
+  issuedDate  String?
+  dueDate     String
+  relativeDue String?
+  attachments String[]   @default([])
+
+  authorId     String?
+  universityId String
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([universityId])
+  @@schema("university")
+}
+
+model AttendanceRecord {
+  id            String     @id @default(uuid())
+  studentId     String
+  subject       String
+  totalClasses  Int        @default(0)
+  attended      Int        @default(0)
+  missed        Int        @default(0)
+  attendancePct Int        @default(100)
+  statusText    String?
+  isWarning     Boolean    @default(false)
+
+  universityId  String
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([studentId, subject, universityId])
+  @@index([universityId])
   @@schema("university")
 }

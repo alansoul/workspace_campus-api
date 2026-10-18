@@ -1,0 +1,13 @@
+{
+  "connected": true,
+  "email": "rohan26100@iiitnr.edu.in",
+  "tokens": {
+    "access_token": "ya29.a0AX07CmtwA_X_oTjkGnQPr4S53gu8Lw_sQzE9fD4k-h8oz1B9bZD5KGQ3w1XNqemVGzrDWWRw72iV_yn_fL96eBDYYeSb8JojArifDmcHTi6UOXXkzz1FO4X_lEKKMSHY6zKPhyEbhbm7HANR_zHPbUIlNUU3m6WPp_7Q-VLkaFh9xPEbs3zm-Uf1GovKIZtbWDHomErjaCgYKAYoSARcSFQHGX2MiDJVNugEZMLuNLWsu-D7JnA0207",
+    "expires_in": 3599,
+    "refresh_token": "1//0gUteX-ZIXP99CgYIARAAGBASNwF-L9Ir-BBB6WVawU5cLS0DrWkIGLAQaU3yR7IRwU0Vbo3C0t-XcfA0jfCG2X61p9D68dU0Q7o",
+    "scope": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email openid",
+    "token_type": "Bearer",
+    "id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Ijk0M2EzYTVkN2Q5MTk2MjVhNDU0ZTQ4OWI3NWMyOWFkYWI1N2FjYmEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJhenAiOiI5ODA5NTIwNDAwMzMtMjQ4NWF0MDhwbDJ2NG82cWdhZ3I1dHNvYm41N2JzdXUuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb20iLCJhdWQiOiI5ODA5NTIwNDAwMzMtMjQ4NWF0MDhwbDJ2NG82cWdhZ3I1dHNvYm41N2JzdXUuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb20iLCJzdWIiOiIxMTYyMDMxMDQ2NjMwOTExNTA1MjkiLCJoZCI6ImlpaXRuci5lZHUuaW4iLCJlbWFpbCI6InJvaGFuMjYxMDBAaWlpdG5yLmVkdS5pbiIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJhdF9oYXNoIjoiWXh1azdVVkpFOTZpTXVFUnZRUGNmUSIsImlhdCI6MTc5MjI3OTk1MCwiZXhwIjoxNzkyMjgzNTUwfQ.l9pZqArrdz6hchEjDhCc2TfltMpSnKZtOoQbLXG64oxg9NfVPalhqNuBhbYdEk7Yxy9jQgyo_jC0JRAl2FAkVJHgPqh9OUBSJsryr87Tjp8mwkV_W51yvi3EdmN3LeGNFxx5WtP6CgKMgoABYRgE4fkFhRGiwI7j9ruPe7iORoAHa_PxGZbdMy5PYPa39_pbVe6MkgUHO2EFMvNDELsFT8AWyTcs3p1KnRYUMomKtwAo9yg-eo2DJmvwljoxHUInLa7M3PRjKXR4Wlbsmv6SRg691FS43kjvvc79dCsDUV2O2Xrno208u2Ejau0R07r6sc6R0FpZtHYxZD2nTTIH-g",
+    "refresh_token_expires_in": 604799
+  }
+}

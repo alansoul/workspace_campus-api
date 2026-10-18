@@ -25,12 +25,14 @@ function parseCookie(cookieString?: string): Record<string, string> {
 
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://workspace-campus-web.vercel.app', // 👈 Explicitly allow live Vercel domain
+  'https://workspace-campus-web.vercel.app',
   ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
 ];
 
 @WebSocketGateway({
   cors: { origin: allowedOrigins, credentials: true },
+  pingTimeout: 60000,
+  pingInterval: 25000,
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -52,19 +54,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const token =
         client.handshake.auth?.token ||
         cookies['token'] ||
-        (client.handshake.headers.authorization?.startsWith('Bearer ')
-          ? client.handshake.headers.authorization.split(' ')[1]
-          : undefined);
+        cookies['access_token'] ||
+        cookies['jwt'];
 
-      if (!token) return;
-
-      const payload: AuthenticatedUser = await this.jwtService.verifyAsync(token);
-      client.data.user = payload;
-      this.onlineUsers.set(payload.sub, { socketId: client.id, user: payload });
-
-      this.broadcastPresence();
-    } catch {
-      // Allow connection with client-supplied credentials
+      if (token) {
+        const userPayload = await this.jwtService.verifyAsync<AuthenticatedUser>(token).catch(() => null);
+        if (userPayload?.sub) {
+          this.registerUser(client, userPayload);
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Handshake warning: ${err}`);
     }
   }
 
@@ -76,6 +76,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  private registerUser(client: Socket, userObj: AuthenticatedUser) {
+    client.data.user = userObj;
+    this.onlineUsers.set(userObj.sub, { socketId: client.id, user: userObj });
+    client.join(`user:${userObj.sub}`);
+    this.logger.log(`Active user registered: ${userObj.fullName} (user:${userObj.sub}) on socket ${client.id}`);
+    this.broadcastPresence();
+  }
+
   private broadcastPresence() {
     const users = Array.from(this.onlineUsers.values()).map((entry) => ({
       userId: entry.user.sub,
@@ -85,15 +93,37 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.emit('presence:sync', users);
   }
 
+  // Explicit registration from frontend to guarantee user room mapping across ports
+  @SubscribeMessage('user:register')
+  handleExplicitRegister(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { userId: string; fullName?: string; email?: string },
+  ) {
+    if (!payload?.userId) return;
+    const userObj: AuthenticatedUser = {
+      sub: payload.userId,
+      email: payload.email || `${payload.userId}@campus.local`,
+      fullName: payload.fullName || 'Campus Peer',
+      role: 'STUDENT',
+      universityId: 'iiitnr',
+    };
+    this.registerUser(client, userObj);
+    return { status: 'registered', userId: payload.userId };
+  }
+
   @SubscribeMessage('joinChannel')
   handleJoinChannel(@ConnectedSocket() client: Socket, @MessageBody() channelId: string) {
-    client.join(channelId);
+    if (channelId) {
+      client.join(channelId);
+    }
     return { status: 'joined', channelId };
   }
 
   @SubscribeMessage('leaveChannel')
   handleLeaveChannel(@ConnectedSocket() client: Socket, @MessageBody() channelId: string) {
-    client.leave(channelId);
+    if (channelId) {
+      client.leave(channelId);
+    }
     return { status: 'left', channelId };
   }
 
@@ -120,7 +150,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       payload.senderName ||
       'Anonymous';
 
-    // Allow sending messages that have text OR an attached media file
     if (!payload.content?.trim() && !payload.fileUrl) return;
 
     const message = await this.chatService.createMessage({
@@ -138,7 +167,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return message;
   }
 
-  // --- WebRTC Signaling Events ---
+  // --- WebRTC & Call Signaling Events ---
 
   @SubscribeMessage('call:offer')
   handleCallOffer(
@@ -146,58 +175,68 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody()
     payload: {
       channelId: string;
-      offer: RTCSessionDescriptionInit;
+      offer?: RTCSessionDescriptionInit;
       callerName: string;
       callerId: string;
+      targetUserId?: string;
+      roomName?: string;
       isVideo: boolean;
     },
   ) {
-    client.to(payload.channelId).emit('call:incoming', {
+    const callData = {
       fromSocketId: client.id,
       channelId: payload.channelId,
-      offer: payload.offer,
+      offer: payload.offer || ({} as RTCSessionDescriptionInit),
       callerName: payload.callerName,
       callerId: payload.callerId,
+      roomName: payload.roomName || `campus-${payload.channelId}`,
       isVideo: payload.isVideo,
-    });
+    };
+
+    // 1. Direct 1-to-1 call: Target recipient's individual user room
+    if (payload.targetUserId) {
+      this.server.to(`user:${payload.targetUserId}`).emit('call:incoming', callData);
+      return;
+    }
+
+    // 2. Channel call (#general): Broadcast workspace-wide so all peers get alerted
+    client.broadcast.emit('call:incoming', callData);
   }
 
   @SubscribeMessage('call:answer')
   handleCallAnswer(
     @ConnectedSocket() client: Socket,
     @MessageBody()
-    payload: { channelId: string; answer: RTCSessionDescriptionInit },
+    payload: {
+      channelId: string;
+      answer?: RTCSessionDescriptionInit;
+      targetSocketId?: string;
+    },
   ) {
-    client.to(payload.channelId).emit('call:answered', {
-      fromSocketId: client.id,
-      answer: payload.answer,
-    });
-  }
-
-  @SubscribeMessage('call:ice-candidate')
-  handleIceCandidate(
-    @ConnectedSocket() client: Socket,
-    @MessageBody()
-    payload: { channelId: string; candidate: RTCIceCandidateInit },
-  ) {
-    client.to(payload.channelId).emit('call:ice-candidate', {
-      candidate: payload.candidate,
-    });
+    if (payload.targetSocketId) {
+      client.to(payload.targetSocketId).emit('call:answered', payload);
+    } else {
+      client.broadcast.emit('call:answered', payload);
+    }
   }
 
   @SubscribeMessage('call:reject')
   handleCallReject(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { channelId: string },
+    @MessageBody() payload?: { channelId?: string; targetSocketId?: string },
   ) {
-    client.to(payload.channelId).emit('call:rejected');
+    if (payload?.targetSocketId) {
+      client.to(payload.targetSocketId).emit('call:rejected');
+    } else {
+      client.broadcast.emit('call:rejected');
+    }
   }
 
   @SubscribeMessage('call:end')
   handleCallEnd(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { channelId: string },
+    @MessageBody() payload?: { channelId?: string },
   ) {
-    this.server.to(payload.channelId).emit('call:ended');
+    client.broadcast.emit('call:ended');
   }
 }
