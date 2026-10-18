@@ -101,7 +101,7 @@ async function refreshGoogleAccessToken(refreshToken: string): Promise<string | 
   }
 }
 
-@Controller('universities')
+@Controller(['university', 'universities'])
 export class UniversityController {
   constructor(
     private readonly universityService: UniversityService,
@@ -543,7 +543,7 @@ Analyze this uploaded academic timetable PDF for: B.Tech Semester ${semester} - 
 Instructions:
 1. Cross-reference the slot letters in the timetable grid (Slot A, Slot Z, Slot B, Slot L, Slot F, Slot P, Slot E, ILC, Music, Yoga) with the legend table at the bottom of the page.
 2. Resolve each slot into its full Subject name and Faculty name (e.g. Slot Z is Calculas by Dr. P P Paltani, Slot B is Programming with C by Dr. Ruhul, Slot L is Digital Electronics using Verilog by Dr. Manoj, Slot F is Internet of Things by Dr. Abhishek).
-3. Days must include Monday, Tuesday, Wednesday, Thursday, Friday with all 8 period slots each.
+3. Days must include Monday, Tuesday, Wednesday, Thursday, Friday with all period slots each.
 4. Derive a list of unique subjects with code, faculty, and classesPerWeek.
 
 Return ONLY a strict raw JSON object with this exact structure (no markdown fences, no backticks, no comments):
