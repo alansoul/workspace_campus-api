@@ -95,24 +95,25 @@ model Notice {
 }
 
 model CampusEvent {
-  id           String     @id @default(uuid())
-  title        String
-  category     String     @default("Club")
-  timingBadge  String?    @default("Upcoming")
-  description  String     @db.Text
-  dateTimeStr  String
-  venue        String
-  isInterested Boolean    @default(false)
-  organizer    String     @default("Campus Community") // e.g. "Cipher Cell" or "Student Council"
-  organizerContact String? // email or phone
+  id               String          @id @default(uuid())
+  title            String
+  category         String          @default("Club")
+  timingBadge      String?         @default("Upcoming")
+  description      String          @db.Text
+  dateTimeStr      String
+  venue            String
+  organizer        String          @default("Campus Community")
+  organizerContact String?
 
-  authorId     String?
-  universityId String
+  authorId         String?
+  universityId     String          @default("iiitnr")
 
-  attendees    Json       @default("[]")
+  // Shared relation to individual registrations
+  interests        EventInterest[]
+  attendees        Json            @default("[]")
 
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   @@index([universityId])
   @@schema("university")
@@ -159,5 +160,62 @@ model AttendanceRecord {
 
   @@unique([studentId, subject, universityId])
   @@index([universityId])
+  @@schema("university")
+}
+
+// ==========================================
+// 3. INDIVIDUAL USER DATA & INTEGRATIONS
+// ==========================================
+
+// Tracks individual student RSVPs (Event is common, RSVP is individual)
+model EventInterest {
+  id        String      @id @default(uuid())
+  eventId   String
+  userId    String
+  userEmail String?
+  userName  String?
+  createdAt DateTime    @default(now())
+
+  event     CampusEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+  @@schema("university")
+}
+
+// Stores OAuth tokens per user in PostgreSQL (Fixes the blue "+ Connect" reset on reload)
+model UniversityIntegration {
+  id           String    @id @default(uuid())
+  userId       String
+  universityId String    @default("iiitnr")
+  provider     String    @default("google_gmail")
+  email        String?
+  accessToken  String    @db.Text
+  refreshToken String?   @db.Text
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([userId, provider])
+  @@index([userId])
+  @@schema("university")
+}
+
+// Private student tasks (Strictly individual per user)
+model StudentTask {
+  id           String    @id @default(uuid())
+  userId       String
+  universityId String    @default("iiitnr")
+  title        String
+  category     String?   @default("Academic")
+  dueDate      String?
+  isCompleted  Boolean   @default(false)
+  priority     String    @default("NORMAL")
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId])
   @@schema("university")
 }
