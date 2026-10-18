@@ -482,6 +482,21 @@ export class UniversityController {
     );
   }
 
+  @Post('attendance/adjust')
+  @UseGuards(JwtAuthGuard)
+  adjustAttendance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { subjectName: string; attended: number; total: number },
+  ) {
+    return this.universityService.adjustAttendance(
+      user.universityId,
+      user.sub,
+      body.subjectName,
+      body.attended,
+      body.total,
+    );
+  }
+
   // 10. Academic Notes & Question Forum
   @Get('notes')
   @UseGuards(JwtAuthGuard)
@@ -505,5 +520,120 @@ export class UniversityController {
   @UseGuards(JwtAuthGuard)
   createQuestion(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateQuestionDto) {
     return this.universityService.createQuestion(user.universityId, user.sub, dto);
+  }
+
+  // Dynamic AI Timetable Parser for Uploaded PDFs
+  @Post('timetable/parse-document')
+  @UseGuards(JwtAuthGuard)
+  async parseTimetableDocument(
+    @Body() body: { fileBase64: string; mimeType: string; branch?: string; semester?: number },
+  ) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return { success: false, error: 'GEMINI_API_KEY is not configured in backend .env' };
+    }
+
+    const branch = body.branch || 'CSE';
+    const semester = body.semester || 1;
+
+    const prompt = `
+You are an expert university timetable parser.
+Analyze this uploaded academic timetable PDF for: B.Tech Semester ${semester} - ${branch} (Room 138).
+
+Instructions:
+1. Cross-reference the slot letters in the timetable grid (Slot A, Slot Z, Slot B, Slot L, Slot F, Slot P, Slot E, ILC, Music, Yoga) with the legend table at the bottom of the page.
+2. Resolve each slot into its full Subject name and Faculty name (e.g. Slot Z is Calculas by Dr. P P Paltani, Slot B is Programming with C by Dr. Ruhul, Slot L is Digital Electronics using Verilog by Dr. Manoj, Slot F is Internet of Things by Dr. Abhishek).
+3. Days must include Monday, Tuesday, Wednesday, Thursday, Friday with all 8 period slots each.
+4. Derive a list of unique subjects with code, faculty, and classesPerWeek.
+
+Return ONLY a strict raw JSON object with this exact structure (no markdown fences, no backticks, no comments):
+{
+  "institution": "Dr. Shyama Prasad Mukherjee IIIT Naya Raipur",
+  "roomNo": "Room 138",
+  "effectiveDate": "24/08/2026",
+  "timetable": [
+    {
+      "day": "Monday",
+      "dateStr": "Day 1",
+      "isToday": false,
+      "classCount": 8,
+      "slots": [
+        {
+          "id": "slot-mon-1",
+          "subjectName": "Music",
+          "code": "CL101",
+          "type": "Theory",
+          "startTime": "09:00",
+          "endTime": "09:55",
+          "room": "Room 138",
+          "faculty": "Dr. Darash",
+          "isToday": false
+        }
+      ]
+    }
+  ],
+  "subjects": [
+    {
+      "id": "sub-1",
+      "name": "Linear Algebra & Matrix Analysis",
+      "code": "MA102",
+      "faculty": "Dr. Mithilesh",
+      "classesPerWeek": 4,
+      "credits": 4,
+      "assignmentsCount": 2,
+      "filesCount": 4,
+      "unitsCompleted": 1,
+      "totalUnits": 4,
+      "attendancePct": 85
+    }
+  ]
+}`;
+
+    try {
+      const cleanBase64 = (body.fileBase64 || '').replace(/^data:.*?;base64,/, '');
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  {
+                    inlineData: {
+                      mimeType: body.mimeType || 'application/pdf',
+                      data: cleanBase64,
+                    },
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              responseMimeType: 'application/json',
+            },
+          }),
+        },
+      );
+
+      const json = await response.json();
+      const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!rawText) {
+        return { success: false, error: 'AI parser did not return text. Check GEMINI_API_KEY quota.' };
+      }
+
+      const parsed = JSON.parse(rawText);
+
+      return {
+        success: true,
+        data: parsed,
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to parse timetable document';
+      return { success: false, error: message };
+    }
   }
 }
