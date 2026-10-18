@@ -522,13 +522,15 @@ export class UniversityController {
     return this.universityService.createQuestion(user.universityId, user.sub, dto);
   }
 
-  // Dynamic AI Timetable Parser for Uploaded PDFs
+  // Dynamic AI Timetable Parser (Using Gemini Flash-Lite)
   @Post('timetable/parse-document')
   @UseGuards(JwtAuthGuard)
   async parseTimetableDocument(
     @Body() body: { fileBase64: string; mimeType: string; branch?: string; semester?: number },
   ) {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const rawApiKey = process.env.GEMINI_API_KEY || '';
+    const apiKey = rawApiKey.trim();
+
     if (!apiKey) {
       return { success: false, error: 'GEMINI_API_KEY is not configured in backend .env' };
     }
@@ -536,17 +538,14 @@ export class UniversityController {
     const branch = body.branch || 'CSE';
     const semester = body.semester || 1;
 
-    const prompt = `
-You are an expert university timetable parser.
-Analyze this uploaded academic timetable PDF for: B.Tech Semester ${semester} - ${branch} (Room 138).
-
-Instructions:
-1. Cross-reference the slot letters in the timetable grid (Slot A, Slot Z, Slot B, Slot L, Slot F, Slot P, Slot E, ILC, Music, Yoga) with the legend table at the bottom of the page.
+    const prompt = `You are an academic schedule extractor. Analyze this timetable document.
+Target: B.Tech Semester ${semester} - ${branch} (Room 138).
+1. Match slot letters in the timetable grid (Slot A, Slot Z, Slot B, Slot L, Slot F, Slot P, Slot E, ILC, Music, Yoga) with the legend table at the bottom of the page.
 2. Resolve each slot into its full Subject name and Faculty name (e.g. Slot Z is Calculas by Dr. P P Paltani, Slot B is Programming with C by Dr. Ruhul, Slot L is Digital Electronics using Verilog by Dr. Manoj, Slot F is Internet of Things by Dr. Abhishek).
-3. Days must include Monday, Tuesday, Wednesday, Thursday, Friday with all period slots each.
-4. Derive a list of unique subjects with code, faculty, and classesPerWeek.
+3. Include Monday through Friday with all periods.
+4. Derive unique subjects with code, faculty, and classesPerWeek.
 
-Return ONLY a strict raw JSON object with this exact structure (no markdown fences, no backticks, no comments):
+Return ONLY a strict raw JSON object with this exact structure (no markdown fences, no backticks):
 {
   "institution": "Dr. Shyama Prasad Mukherjee IIIT Naya Raipur",
   "roomNo": "Room 138",
@@ -589,51 +588,79 @@ Return ONLY a strict raw JSON object with this exact structure (no markdown fenc
   ]
 }`;
 
-    try {
-      const cleanBase64 = (body.fileBase64 || '').replace(/^data:.*?;base64,/, '');
+    // Clean base64 string
+    const cleanBase64 = (body.fileBase64 || '')
+      .replace(/^data:.*?;base64,/, '')
+      .replace(/[\r\n\s]/g, '');
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    // Canonical Google Gemini REST schema uses inlineData and mimeType
+    const requestPayload = {
+      contents: [
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: prompt },
-                  {
-                    inlineData: {
-                      mimeType: body.mimeType || 'application/pdf',
-                      data: cleanBase64,
-                    },
-                  },
-                ],
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: body.mimeType || 'application/pdf',
+                data: cleanBase64,
               },
-            ],
-            generationConfig: {
-              responseMimeType: 'application/json',
             },
-          }),
+          ],
         },
-      );
+      ],
+      generationConfig: {
+        responseMimeType: 'application/json',
+      },
+    };
 
-      const json = await response.json();
-      const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    // Prioritize Gemini Flash-Lite
+    const candidateModels = [
+      'gemini-2.0-flash-lite',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash',
+    ];
 
-      if (!rawText) {
-        return { success: false, error: 'AI parser did not return text. Check GEMINI_API_KEY quota.' };
+    let lastError = 'No response from Gemini API';
+
+    for (const model of candidateModels) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestPayload),
+          },
+        );
+
+        const json = await res.json();
+
+        if (json.error) {
+          lastError = `Gemini (${model}): ${json.error.message || json.error.status}`;
+          continue;
+        }
+
+        const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (rawText) {
+          const cleanJsonText = rawText
+            .replace(/^```json\s*/i, '')
+            .replace(/^```\s*/i, '')
+            .replace(/```\s*$/, '')
+            .trim();
+
+          const parsed = JSON.parse(cleanJsonText);
+          return {
+            success: true,
+            data: parsed,
+          };
+        } else {
+          lastError = `Gemini (${model}) returned empty text.`;
+        }
+      } catch (err: unknown) {
+        lastError = err instanceof Error ? err.message : 'Request failed';
       }
-
-      const parsed = JSON.parse(rawText);
-
-      return {
-        success: true,
-        data: parsed,
-      };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to parse timetable document';
-      return { success: false, error: message };
     }
+
+    return { success: false, error: lastError };
   }
 }
