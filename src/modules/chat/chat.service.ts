@@ -176,4 +176,91 @@ export class ChatService implements OnModuleInit {
   }) {
     return (this.prisma as any).chatMessage.create({ data });
   }
+
+  /**
+   * Helper to verify if the requester has admin powers dynamically
+   */
+  private isUserAdmin(user: { id?: string; sub?: string; email?: string; role?: string }): boolean {
+    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const userEmail = user?.email?.trim().toLowerCase();
+
+    return (
+      user?.role === 'ADMIN' ||
+      user?.role === 'SUPERADMIN' ||
+      (Boolean(adminEmail) && Boolean(userEmail) && userEmail === adminEmail)
+    );
+  }
+
+  // DELETE: Users delete their own; Admins delete ANY message
+  async deleteMessage(
+    messageId: string,
+    currentUser: { id?: string; sub?: string; email?: string; role?: string },
+    mode: 'SOFT' | 'HARD' = 'SOFT',
+  ) {
+    const message = await (this.prisma as any).chatMessage.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!message) {
+      throw new NotFoundException('Message not found');
+    }
+
+    const currentUserId = currentUser.sub || currentUser.id;
+    const isOwner = message.senderId === currentUserId;
+    const isAdmin = this.isUserAdmin(currentUser);
+
+    if (!isOwner && !isAdmin) {
+      throw new BadRequestException('You can only delete your own messages.');
+    }
+
+    if (mode === 'SOFT') {
+      const updated = await (this.prisma as any).chatMessage.update({
+        where: { id: messageId },
+        data: {
+          content: isAdmin && !isOwner ? '🚫 This message was deleted by Admin' : '🚫 This message was deleted',
+          isDeleted: true,
+          fileUrl: null,
+        },
+      });
+      return { success: true, message: updated, isSoftDeleted: true, channelId: message.channelId };
+    } else {
+      await (this.prisma as any).chatMessage.delete({
+        where: { id: messageId },
+      });
+      return { success: true, messageId, isSoftDeleted: false, channelId: message.channelId };
+    }
+  }
+
+  // EDIT: Users edit their own messages; Admins can edit if needed
+  async editMessage(
+    messageId: string,
+    newContent: string,
+    currentUser: { id?: string; sub?: string; email?: string; role?: string },
+  ) {
+    const message = await (this.prisma as any).chatMessage.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!message) {
+      throw new NotFoundException('Message not found');
+    }
+
+    const currentUserId = currentUser.sub || currentUser.id;
+    const isOwner = message.senderId === currentUserId;
+    const isAdmin = this.isUserAdmin(currentUser);
+
+    if (!isOwner && !isAdmin) {
+      throw new BadRequestException('You can only edit your own messages.');
+    }
+
+    const updated = await (this.prisma as any).chatMessage.update({
+      where: { id: messageId },
+      data: {
+        content: newContent.trim(),
+        isEdited: true,
+      },
+    });
+
+    return { success: true, message: updated, channelId: message.channelId };
+  }
 }

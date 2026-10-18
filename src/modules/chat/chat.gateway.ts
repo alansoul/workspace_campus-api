@@ -167,6 +167,63 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return message;
   }
 
+  @SubscribeMessage('delete_message')
+  async handleDeleteMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { messageId: string; channelId: string; mode?: 'SOFT' | 'HARD' },
+  ) {
+    try {
+      const user = client.data.user;
+      if (!user) return { error: 'Unauthorized' };
+
+      const result = await this.chatService.deleteMessage(
+        payload.messageId,
+        user,
+        payload.mode || 'SOFT',
+      );
+
+      // Broadcast real-time deletion to everyone in this channel
+      this.server.to(payload.channelId).emit('message_deleted', {
+        messageId: payload.messageId,
+        channelId: payload.channelId,
+        isSoftDeleted: result.isSoftDeleted,
+        newContent: result.isSoftDeleted ? (result.message as any)?.content : undefined,
+      });
+
+      return { success: true };
+    } catch (err: any) {
+      return { error: err.message };
+    }
+  }
+
+  @SubscribeMessage('edit_message')
+  async handleEditMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { messageId: string; channelId: string; content: string },
+  ) {
+    try {
+      const user = client.data.user;
+      if (!user) return { error: 'Unauthorized' };
+
+      const result = await this.chatService.editMessage(
+        payload.messageId,
+        payload.content,
+        user,
+      );
+
+      // Broadcast real-time edit to everyone in this channel
+      this.server.to(payload.channelId).emit('message_edited', {
+        messageId: payload.messageId,
+        channelId: payload.channelId,
+        content: payload.content.trim(),
+      });
+
+      return { success: true };
+    } catch (err: any) {
+      return { error: err.message };
+    }
+  }
+
   // --- WebRTC & Call Signaling Events ---
 
   @SubscribeMessage('call:offer')
