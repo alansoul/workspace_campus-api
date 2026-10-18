@@ -170,11 +170,28 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('delete_message')
   async handleDeleteMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { messageId: string; channelId: string; mode?: 'SOFT' | 'HARD' },
+    @MessageBody()
+    payload: {
+      messageId: string;
+      channelId: string;
+      mode?: 'SOFT' | 'HARD';
+      userId?: string;
+      userEmail?: string;
+      userRole?: string;
+    },
   ) {
     try {
-      const user = client.data.user;
-      if (!user) return { error: 'Unauthorized' };
+      // Resolve user either from socket session or payload fallback
+      const user = client.data.user || {
+        id: payload.userId,
+        sub: payload.userId,
+        email: payload.userEmail,
+        role: payload.userRole,
+      };
+
+      if (!user.id && !user.sub) {
+        return { error: 'Unauthorized: User identity not found.' };
+      }
 
       const result = await this.chatService.deleteMessage(
         payload.messageId,
@@ -182,7 +199,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         payload.mode || 'SOFT',
       );
 
-      // Broadcast real-time deletion to everyone in this channel
+      // Broadcast real-time deletion across the channel
       this.server.to(payload.channelId).emit('message_deleted', {
         messageId: payload.messageId,
         channelId: payload.channelId,
@@ -192,6 +209,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       return { success: true };
     } catch (err: any) {
+      this.logger.error(`Delete message failed: ${err.message}`);
       return { error: err.message };
     }
   }
