@@ -1,6 +1,4 @@
 // campus-api/src/modules/university/controllers/university.controller.ts
-import * as fs from 'fs';
-import * as path from 'path';
 import {
   Body,
   Controller,
@@ -36,9 +34,7 @@ const COOKIE_OPTIONS = {
   path: '/',
 };
 
-// Persistent token cache path across server hot-reloads
-const SESSION_CACHE_PATH = path.join(process.cwd(), '.gmail_session.json');
-
+// 🟢 ADD THESE TWO INTERFACES:
 interface EmailHeader {
   name?: string;
   value?: string;
@@ -57,34 +53,6 @@ interface SyncedCampusItem {
     dueDate?: string;
     venue?: string;
   };
-}
-
-interface GmailSessionState {
-  connected: boolean;
-  email: string | null;
-  tokens: {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-  } | null;
-}
-
-function persistSessionToDisk(data: GmailSessionState): void {
-  try {
-    fs.writeFileSync(SESSION_CACHE_PATH, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Failed to write .gmail_session.json cache:', err);
-  }
-}
-
-function loadSessionFromDisk(): GmailSessionState | null {
-  try {
-    if (fs.existsSync(SESSION_CACHE_PATH)) {
-      const raw = fs.readFileSync(SESSION_CACHE_PATH, 'utf-8');
-      return JSON.parse(raw) as GmailSessionState;
-    }
-  } catch {}
-  return null;
 }
 
 // Helper to sanitize variables and strip accidental wrapping quotes from .env
@@ -140,34 +108,23 @@ export class UniversityController {
     private readonly emailSyncService: CampusEmailSyncService,
   ) {}
 
-  // In-memory token store with persistent disk fallback
-  private static gmailSession: GmailSessionState = loadSessionFromDisk() || {
-    connected: false,
-    email: null,
-    tokens: null,
-  };
 
-  private static getSession(): GmailSessionState {
-    const saved = loadSessionFromDisk();
-    if (saved && saved.tokens?.access_token) {
-      UniversityController.gmailSession = saved;
-    }
-    return UniversityController.gmailSession;
-  }
 
-  // 1. Google Gmail Sync Status
+ // 1. Google Gmail Sync Status (Queried per-user from PostgreSQL)
   @Get('auth/google-gmail/status')
-  async getGmailStatus() {
-    const session = UniversityController.getSession();
+  @UseGuards(JwtAuthGuard)
+  async getGmailStatus(@CurrentUser() user: AuthenticatedUser) {
+    const credential = await this.universityService.getUserGmailCredential(user.sub);
     return {
-      connected: Boolean(session.connected && session.tokens?.access_token),
-      email: session.email,
+      connected: Boolean(credential?.accessToken || credential?.refreshToken),
+      email: credential?.email || null,
     };
   }
 
-  // 2. Generate Google OAuth URL (Targeting rohan26100@iiitnr.edu.in)
+  // 2. Generate Google OAuth URL (Dynamic user state & hint)
   @Get('auth/google-gmail/connect-url')
-  getGmailConnectUrl() {
+  @UseGuards(JwtAuthGuard)
+  getGmailConnectUrl(@CurrentUser() user: AuthenticatedUser) {
     const { clientId, redirectUri } = getGoogleGmailCredentials();
 
     const scopes = encodeURIComponent(
@@ -177,16 +134,22 @@ export class UniversityController {
       ].join(' '),
     );
 
+    const loginHintParam = user.email ? `&login_hint=${encodeURIComponent(user.email)}` : '';
+
     const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       redirectUri,
-    )}&response_type=code&scope=${scopes}&access_type=offline&prompt=consent&hd=iiitnr.edu.in&login_hint=rohan26100@iiitnr.edu.in`;
+    )}&response_type=code&scope=${scopes}&access_type=offline&prompt=consent&state=${user.sub}${loginHintParam}`;
 
     return { url };
   }
 
-  // 3. Google OAuth Redirect Callback: Native Token Exchange & Disk Persistence
+  // 3. Google OAuth Redirect Callback: Native Token Exchange & Database Persistence
   @Get('auth/google-gmail/callback')
-  async handleGmailCallback(@Query('code') code: string, @Res() res: Response) {
+  async handleGmailCallback(
+    @Query('code') code: string,
+    @Query('state') stateUserId: string,
+    @Res() res: Response,
+  ) {
     const { clientId, clientSecret, redirectUri } = getGoogleGmailCredentials();
 
     try {
@@ -207,20 +170,30 @@ export class UniversityController {
           access_token?: string;
           refresh_token?: string;
           expires_in?: number;
-          error?: string;
-          error_description?: string;
         };
 
-        if (tokenData.access_token) {
-          const sessionState: GmailSessionState = {
-            connected: true,
-            email: 'rohan26100@iiitnr.edu.in',
-            tokens: tokenData,
-          };
-          UniversityController.gmailSession = sessionState;
-          persistSessionToDisk(sessionState);
-        } else {
-          console.error('OAuth token exchange rejected by Google:', tokenData);
+        if (tokenData.access_token && stateUserId) {
+          // Fetch the actual authenticated email dynamically from Google API
+          let userEmail: string | undefined;
+          try {
+            const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+              headers: { Authorization: `Bearer ${tokenData.access_token}` },
+            });
+            if (profileRes.ok) {
+              const profile = (await profileRes.json()) as { email?: string };
+              userEmail = profile.email;
+            }
+          } catch (e) {
+            console.warn('Could not fetch user profile from Google:', e);
+          }
+
+          // Persist credentials per-user in PostgreSQL
+          await this.universityService.saveGmailCredentials(stateUserId, {
+            email: userEmail,
+            accessToken: tokenData.access_token,
+            refreshToken: tokenData.refresh_token,
+            expiresIn: tokenData.expires_in,
+          });
         }
       }
     } catch (err) {
@@ -228,30 +201,27 @@ export class UniversityController {
     }
 
     let frontendUrl = process.env.FRONTEND_URL || 'https://workspace-campus-web.vercel.app';
+    if (!frontendUrl.startsWith('http://') && !frontendUrl.startsWith('https://')) {
+      frontendUrl = `https://${frontendUrl}`;
+    }
+    frontendUrl = frontendUrl.replace(/\/+$/, '');
 
-// Ensure the protocol is always present so Express does not treat it as a relative path
-if (!frontendUrl.startsWith('http://') && !frontendUrl.startsWith('https://')) {
-  frontendUrl = `https://${frontendUrl}`;
-}
-
-// Remove any trailing slash to avoid double slashes
-frontendUrl = frontendUrl.replace(/\/+$/, '');
-
-return res.redirect(`${frontendUrl}/academics?gmail_connected=true`);
+    return res.redirect(`${frontendUrl}/academics?gmail_connected=true`);
   }
 
-  // 4. Pure Live Ingestion: Scans Past 30 Days and Auto-Prunes Older Updates
+  // 4. Live Ingestion: Scans Past 30 Days using the authenticated user's DB credentials
   @Post('email-sync/run')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async syncUniversityEmail(
-    @Req() req: Request,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() payload: { emails?: any[] },
   ) {
-    const session = UniversityController.getSession();
-    let accessToken = session.tokens?.access_token;
-    const refreshToken = session.tokens?.refresh_token;
+    const credential = await this.universityService.getUserGmailCredential(user.sub);
+    let accessToken = credential?.accessToken;
+    const refreshToken = credential?.refreshToken;
 
-    if (!accessToken) {
+    if (!accessToken && !refreshToken) {
       return {
         success: false,
         error: 'AUTH_REQUIRED',
@@ -267,7 +237,6 @@ return res.redirect(`${frontendUrl}/academics?gmail_connected=true`);
       const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
       const cutoffTime = Date.now() - THIRTY_DAYS_MS;
 
-      // Query Gmail strictly for emails received within the last 30 days
       const gmailQuery = encodeURIComponent('in:inbox newer_than:30d');
       let listRes = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=100&q=${gmailQuery}`,
@@ -281,8 +250,11 @@ return res.redirect(`${frontendUrl}/academics?gmail_connected=true`);
         const refreshedToken = await refreshGoogleAccessToken(refreshToken);
         if (refreshedToken) {
           accessToken = refreshedToken;
-          session.tokens!.access_token = refreshedToken;
-          persistSessionToDisk(session);
+          await this.universityService.saveGmailCredentials(user.sub, {
+            email: credential?.email || undefined,
+            accessToken: refreshedToken,
+            refreshToken,
+          });
 
           listRes = await fetch(
             `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=100&q=${gmailQuery}`,
@@ -328,10 +300,7 @@ return res.redirect(`${frontendUrl}/academics?gmail_connected=true`);
           payload?: { headers?: EmailHeader[] };
         };
 
-        // Extract millisecond epoch timestamp directly from Gmail internalDate
         const msgTimeMs = detailData.internalDate ? Number(detailData.internalDate) : Date.now();
-
-        // Enforce 30-day cutoff: omit any email that arrived before the 30-day window
         if (msgTimeMs < cutoffTime) continue;
 
         const headers: EmailHeader[] = detailData.payload?.headers || [];
@@ -345,7 +314,6 @@ return res.redirect(`${frontendUrl}/academics?gmail_connected=true`);
 
         const cleanSender = fromRaw.replace(/<.*?>/, '').trim() || fromRaw;
 
-        // Semantic Category Router
         let actionType: 'NOTICE' | 'TASK' | 'EVENT' | 'TIMETABLE_UPDATE' = 'NOTICE';
         if (/(due|assignment|homework|submit|submission|lab record|problem sheet)/i.test(subject + snippet)) {
           actionType = 'TASK';
@@ -394,6 +362,7 @@ return res.redirect(`${frontendUrl}/academics?gmail_connected=true`);
     }
   }
 
+
   // 5. Authentication & Verification
   @Post('request-otp')
   @HttpCode(HttpStatus.OK)
@@ -429,11 +398,11 @@ return res.redirect(`${frontendUrl}/academics?gmail_connected=true`);
     return this.universityService.createNotice(user.universityId, user.sub, body);
   }
 
-  // 7. Campus Events
+ // 7. Campus Events
   @Get('events')
   @UseGuards(JwtAuthGuard)
   getEvents(@CurrentUser() user: AuthenticatedUser) {
-    return this.universityService.getEvents(user.universityId);
+    return this.universityService.getEvents(user.universityId, user.sub);
   }
 
   @Post('events')

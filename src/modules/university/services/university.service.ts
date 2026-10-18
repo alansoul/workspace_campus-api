@@ -297,28 +297,100 @@ export class UniversityService {
     });
   }
 
-  // ==========================================
-  // CAMPUS EVENTS
-  // ==========================================
-
-  // ==========================================
-  // CAMPUS EVENTS (ATTENDEE ROSTER PERSISTENCE)
+// ==========================================
+  // GOOGLE GMAIL INTEGRATIONS (DATABASE PERSISTENCE)
   // ==========================================
 
-  async getEvents(universityId: string) {
+  async getUserGmailCredential(userId: string) {
+    return (this.prisma as any).universityIntegration.findUnique({
+      where: {
+        userId_provider: {
+          userId,
+          provider: 'google_gmail',
+        },
+      },
+    });
+  }
+
+  async saveGmailCredentials(
+    userId: string,
+    tokens: {
+      email?: string;
+      accessToken: string;
+      refreshToken?: string;
+      expiresIn?: number;
+    },
+  ) {
+    const expiresAt = tokens.expiresIn
+      ? new Date(Date.now() + tokens.expiresIn * 1000)
+      : undefined;
+
+    return (this.prisma as any).universityIntegration.upsert({
+      where: {
+        userId_provider: {
+          userId,
+          provider: 'google_gmail',
+        },
+      },
+      update: {
+        ...(tokens.email ? { email: tokens.email } : {}),
+        accessToken: tokens.accessToken,
+        ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
+        expiresAt,
+      },
+      create: {
+        userId,
+        provider: 'google_gmail',
+        email: tokens.email || null,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt,
+      },
+    });
+  }
+
+  // ==========================================
+  // CAMPUS EVENTS (MULTI-USER & RSVP PERSISTENCE)
+  // ==========================================
+
+  async getEvents(universityId: string, currentUserId?: string) {
     const events = await (this.prisma as any).campusEvent.findMany({
       where: { universityId },
+      include: {
+        interests: true,
+      },
       orderBy: { createdAt: 'desc' },
     });
 
-    return events.map((evt: any) => ({
-      ...evt,
-      attendees: Array.isArray(evt.attendees)
-        ? evt.attendees
-        : typeof evt.attendees === 'string'
-          ? JSON.parse(evt.attendees || '[]')
-          : [],
-    }));
+    return events.map((evt: any) => {
+      const interests = Array.isArray(evt.interests) ? evt.interests : [];
+      let attendees: any[] = [];
+      if (Array.isArray(evt.attendees)) {
+        attendees = evt.attendees;
+      } else if (typeof evt.attendees === 'string') {
+        try {
+          attendees = JSON.parse(evt.attendees);
+        } catch {
+          attendees = [];
+        }
+      }
+
+      // Count is taken from interests table or attendees array
+      const count = interests.length > 0 ? interests.length : attendees.length;
+
+      // Check if current authenticated user has registered
+      const isInterested = currentUserId
+        ? (interests.some((i: any) => i.userId === currentUserId) ||
+           attendees.some((a: any) => a.id === currentUserId || a.email === currentUserId))
+        : Boolean(evt.isInterested);
+
+      return {
+        ...evt,
+        registeredCount: count,
+        attendees,
+        isInterested,
+      };
+    });
   }
 
   async createEvent(
@@ -363,7 +435,7 @@ export class UniversityService {
       });
 
       if (!existing) {
-        return { id, isInterested: interested, attendees: [], synced: false };
+        return { id, isInterested: interested, attendees: [], registeredCount: 0, synced: false };
       }
 
       let attendees: any[] = [];
@@ -394,10 +466,32 @@ export class UniversityService {
             registeredAt: new Date().toISOString(),
           });
         }
+
+        // Persist to EventInterest relation table
+        try {
+          await (this.prisma as any).eventInterest.upsert({
+            where: {
+              eventId_userId: { eventId: id, userId: studentId },
+            },
+            update: {},
+            create: {
+              eventId: id,
+              userId: studentId,
+              userEmail: studentEmail,
+              userName: studentName,
+            },
+          });
+        } catch {}
       } else {
         if (existingIndex !== -1) {
           attendees.splice(existingIndex, 1);
         }
+
+        try {
+          await (this.prisma as any).eventInterest.deleteMany({
+            where: { eventId: id, userId: studentId },
+          });
+        } catch {}
       }
 
       const updated = await (this.prisma as any).campusEvent.update({
@@ -410,11 +504,13 @@ export class UniversityService {
 
       return {
         ...updated,
+        registeredCount: attendees.length,
         attendees,
+        isInterested: interested,
       };
     } catch (error) {
       console.error('Error toggling event interest:', error);
-      return { id, isInterested: interested, attendees: [], error: true };
+      return { id, isInterested: interested, attendees: [], registeredCount: 0, error: true };
     }
   }
   
