@@ -640,6 +640,53 @@ export class UniversityService {
     });
   }
 
+  async adjustAttendance(
+    universityId: string,
+    studentId: string,
+    subjectName: string,
+    attendedCount: number,
+    totalCount: number,
+  ) {
+    const validTotal = Math.max(0, totalCount);
+    const validAttended = Math.min(validTotal, Math.max(0, attendedCount));
+    const validMissed = validTotal - validAttended;
+    const pct = validTotal > 0 ? Math.round((validAttended / validTotal) * 100) : 100;
+    const isWarning = pct < 75;
+
+    return (this.prisma as any).attendanceRecord.upsert({
+      where: {
+        studentId_subject_universityId: {
+          studentId,
+          subject: subjectName,
+          universityId,
+        },
+      },
+      update: {
+        totalClasses: validTotal,
+        attended: validAttended,
+        missed: validMissed,
+        attendancePct: pct,
+        isWarning,
+        statusText: isWarning
+          ? `Warning: ${pct}% is below 75% threshold.`
+          : `Current attendance: ${pct}%. On track.`,
+      },
+      create: {
+        universityId,
+        studentId,
+        subject: subjectName,
+        totalClasses: validTotal,
+        attended: validAttended,
+        missed: validMissed,
+        attendancePct: pct,
+        isWarning,
+        statusText: isWarning
+          ? `Warning: ${pct}% is below 75% threshold.`
+          : `Current attendance: ${pct}%. On track.`,
+      },
+    });
+  }
+
   // ==========================================
   // NOTES & QUESTIONS (PRESERVED)
   // ==========================================
