@@ -615,7 +615,7 @@ Return ONLY a strict raw JSON object with this exact structure (no markdown fenc
     const verifiedModels = [
       'gemini-3.5-flash-lite',
       'gemini-flash-lite-latest',
-      'gemini-2.5-flash-lite',
+      'gemini-1.5-flash-lite',
       'gemini-3.5-flash',
     ];
 
