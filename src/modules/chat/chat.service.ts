@@ -178,17 +178,30 @@ export class ChatService implements OnModuleInit {
   }
 
   /**
-   * Helper to verify if the requester has admin powers dynamically
+   * Helper to verify if the requester has admin powers
+   * Checks token role, env variable, and database record
    */
-  private isUserAdmin(user: { id?: string; sub?: string; email?: string; role?: string }): boolean {
+  private async isUserAdmin(user: { id?: string; sub?: string; email?: string; role?: string }): Promise<boolean> {
+    // 1. Direct role check
+    if (user?.role === 'ADMIN' || user?.role === 'SUPERADMIN') return true;
+
+    // 2. Configured admin email check
     const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
     const userEmail = user?.email?.trim().toLowerCase();
+    if (adminEmail && userEmail && userEmail === adminEmail) return true;
 
-    return (
-      user?.role === 'ADMIN' ||
-      user?.role === 'SUPERADMIN' ||
-      (Boolean(adminEmail) && Boolean(userEmail) && userEmail === adminEmail)
-    );
+    // 3. Database lookup fallback
+    const userId = user?.sub || user?.id;
+    if (userId && (this.prisma as any).user) {
+      const dbUser = await (this.prisma as any).user.findUnique({
+        where: { id: userId },
+        select: { role: true, email: true },
+      });
+      if (dbUser?.role === 'ADMIN' || dbUser?.role === 'SUPERADMIN') return true;
+      if (adminEmail && dbUser?.email?.trim().toLowerCase() === adminEmail) return true;
+    }
+
+    return false;
   }
 
   // DELETE: Users delete their own; Admins delete ANY message
@@ -207,21 +220,39 @@ export class ChatService implements OnModuleInit {
 
     const currentUserId = currentUser.sub || currentUser.id;
     const isOwner = message.senderId === currentUserId;
-    const isAdmin = this.isUserAdmin(currentUser);
+    const isAdmin = await this.isUserAdmin(currentUser);
 
     if (!isOwner && !isAdmin) {
-      throw new BadRequestException('You can only delete your own messages.');
+      throw new BadRequestException('You do not have permission to delete this message.');
     }
 
     if (mode === 'SOFT') {
-      const updated = await (this.prisma as any).chatMessage.update({
-        where: { id: messageId },
-        data: {
-          content: isAdmin && !isOwner ? '🚫 This message was deleted by Admin' : '🚫 This message was deleted',
-          isDeleted: true,
-          fileUrl: null,
-        },
-      });
+      const replacementText = isAdmin && !isOwner
+        ? '🚫 This message was deleted by Admin'
+        : '🚫 This message was deleted';
+
+      let updated;
+      try {
+        // Attempt update with isDeleted flag
+        updated = await (this.prisma as any).chatMessage.update({
+          where: { id: messageId },
+          data: {
+            content: replacementText,
+            isDeleted: true,
+            fileUrl: null,
+          },
+        });
+      } catch {
+        // Fallback update if isDeleted column does not exist in schema
+        updated = await (this.prisma as any).chatMessage.update({
+          where: { id: messageId },
+          data: {
+            content: replacementText,
+            fileUrl: null,
+          },
+        });
+      }
+
       return { success: true, message: updated, isSoftDeleted: true, channelId: message.channelId };
     } else {
       await (this.prisma as any).chatMessage.delete({
