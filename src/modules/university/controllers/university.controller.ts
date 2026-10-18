@@ -522,21 +522,22 @@ export class UniversityController {
     return this.universityService.createQuestion(user.universityId, user.sub, dto);
   }
 
-  // Dynamic AI Timetable Parser configured for Flash-Lite
+  // Dynamic AI Timetable Parser configured for Gemini 3.5 Flash-Lite
   @Post('timetable/parse-document')
   @UseGuards(JwtAuthGuard)
   async parseTimetableDocument(
     @Body() body: { fileBase64: string; mimeType: string; branch?: string; semester?: number },
   ) {
     const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+
     if (!apiKey) {
-      return { success: false, error: 'GEMINI_API_KEY missing from environment.' };
+      return { success: false, error: 'GEMINI_API_KEY is missing from Render Environment Variables.' };
     }
 
     const branch = body.branch || 'CSE';
     const semester = body.semester || 1;
 
-    const prompt = `You are an academic schedule extractor. Analyze this timetable document.
+    const prompt = `You are an academic schedule extractor. Analyze this uploaded timetable document.
 Target: B.Tech Semester ${semester} - ${branch} (Room 138).
 1. Match slot letters in the timetable grid (Slot A, Slot Z, Slot B, Slot L, Slot F, Slot P, Slot E, ILC, Music, Yoga) with the legend table at the bottom of the page.
 2. Resolve each slot into its full Subject name and Faculty name (e.g. Slot Z is Calculas by Dr. P P Paltani, Slot B is Programming with C by Dr. Ruhul, Slot L is Digital Electronics using Verilog by Dr. Manoj, Slot F is Internet of Things by Dr. Abhishek).
@@ -586,11 +587,12 @@ Return ONLY a strict raw JSON object with this exact structure (no markdown fenc
   ]
 }`;
 
+    // Clean base64 string
     const cleanBase64 = (body.fileBase64 || '')
       .replace(/^data:.*?;base64,/, '')
       .replace(/[\r\n\s]/g, '');
 
-    const payload = {
+    const requestPayload = {
       contents: [
         {
           parts: [
@@ -609,38 +611,56 @@ Return ONLY a strict raw JSON object with this exact structure (no markdown fenc
       },
     };
 
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
-      );
+    // Models supported by your active Google AI key
+    const verifiedModels = [
+      'gemini-3.5-flash-lite',
+      'gemini-flash-lite-latest',
+      'gemini-2.5-flash-lite',
+      'gemini-3.5-flash',
+    ];
 
-      const json = await response.json();
+    let lastError = 'Unable to parse timetable with Google AI.';
 
-      if (json.error) {
-        return { success: false, error: `Google API Error: ${json.error.message}` };
+    for (const model of verifiedModels) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey,
+            },
+            body: JSON.stringify(requestPayload),
+          },
+        );
+
+        const json = await response.json();
+
+        if (json.error) {
+          lastError = `Google (${model}): ${json.error.message || json.error.status}`;
+          continue;
+        }
+
+        const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (rawText) {
+          const cleanJson = rawText
+            .replace(/^```json\s*/i, '')
+            .replace(/^```\s*/i, '')
+            .replace(/```\s*$/, '')
+            .trim();
+
+          const parsed = JSON.parse(cleanJson);
+          return {
+            success: true,
+            data: parsed,
+          };
+        }
+      } catch (err: unknown) {
+        lastError = err instanceof Error ? err.message : 'Request failed';
       }
-
-      const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawText) {
-        return { success: false, error: 'Gemini returned empty text response.' };
-      }
-
-      const cleanJson = rawText
-        .replace(/^```json\s*/i, '')
-        .replace(/^```\s*/i, '')
-        .replace(/```\s*$/, '')
-        .trim();
-
-      const parsed = JSON.parse(cleanJson);
-      return { success: true, data: parsed };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to parse timetable document';
-      return { success: false, error: message };
     }
+
+    return { success: false, error: lastError };
   }
 }
