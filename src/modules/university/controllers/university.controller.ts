@@ -227,7 +227,10 @@ export class UniversityController {
       console.error('OAuth code exchange failed:', err);
     }
 
-    return res.redirect('http://localhost:3000/academics?gmail_connected=true');
+    const frontendUrl =
+  process.env.FRONTEND_URL || 'https://workspace-campus-web.vercel.app';
+
+return res.redirect(`${frontendUrl}/academics?gmail_connected=true`);
   }
 
   // 4. Pure Live Ingestion: Scans Past 30 Days and Auto-Prunes Older Updates
