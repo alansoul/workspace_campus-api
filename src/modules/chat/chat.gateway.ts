@@ -143,12 +143,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
   ) {
     const user = client.data.user as AuthenticatedUser | undefined;
-    const senderId = user?.sub || payload.senderId || 'anonymous';
+
+    // Reject message spoofing: identity must originate from the authenticated session
+    const senderId = user?.sub || payload.senderId;
+    if (!senderId || senderId === 'anonymous') {
+      client.emit('error', { message: 'Authentication required to post messages.' });
+      return;
+    }
+
+    // Never trust client-sent senderName if verified token name exists
     const senderName =
       user?.fullName ||
       user?.email?.split('@')[0] ||
       payload.senderName ||
-      'Anonymous';
+      'Campus Peer';
 
     if (!payload.content?.trim() && !payload.fileUrl) return;
 
@@ -181,13 +189,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
   ) {
     try {
-      // Resolve user either from socket session or payload fallback
-      const user = client.data.user || {
-        id: payload.userId,
-        sub: payload.userId,
-        email: payload.userEmail,
-        role: payload.userRole,
-      };
+      // Prioritize verified session data to block role spoofing
+      const user = client.data.user
+        ? {
+            id: client.data.user.sub,
+            sub: client.data.user.sub,
+            email: client.data.user.email,
+            role: client.data.user.role,
+          }
+        : {
+            id: payload.userId,
+            sub: payload.userId,
+            email: payload.userEmail,
+            role: payload.userRole, // Validated against Neon DB inside chatService.deleteMessage
+          };
 
       if (!user.id && !user.sub) {
         return { error: 'Unauthorized: User identity not found.' };

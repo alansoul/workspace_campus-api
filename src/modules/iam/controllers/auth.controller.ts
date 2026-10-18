@@ -76,14 +76,7 @@ export class AuthController {
 
       // Set fallback cookies on the API domain
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
-      res.cookie('user_role', result.user.role, {
-        ...COOKIE_OPTIONS,
-        httpOnly: false,
-      });
-      res.cookie('account_type', result.user.accountType, {
-        ...COOKIE_OPTIONS,
-        httpOnly: false,
-      });
+      
 
       // Redirect directly to /login with token for Vercel first-party cookie hydration
       const targetUrl = new URL('/login', frontendUrl);
@@ -131,14 +124,6 @@ export class AuthController {
 
     if (accessToken) {
       res.cookie('token', accessToken, COOKIE_OPTIONS);
-      res.cookie('user_role', safeData.user.role, {
-        ...COOKIE_OPTIONS,
-        httpOnly: false,
-      });
-      res.cookie('account_type', safeData.user.accountType, {
-        ...COOKIE_OPTIONS,
-        httpOnly: false,
-      });
     }
 
     return safeData;
@@ -154,14 +139,6 @@ export class AuthController {
 
     if (result.accessToken) {
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
-      res.cookie('user_role', result.user.role, {
-        ...COOKIE_OPTIONS,
-        httpOnly: false,
-      });
-      res.cookie('account_type', result.user.accountType, {
-        ...COOKIE_OPTIONS,
-        httpOnly: false,
-      });
     }
 
     const {
@@ -182,14 +159,6 @@ export class AuthController {
 
     if (result.accessToken) {
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
-      res.cookie('user_role', result.user.role, {
-        ...COOKIE_OPTIONS,
-        httpOnly: false,
-      });
-      res.cookie('account_type', result.user.accountType, {
-        ...COOKIE_OPTIONS,
-        httpOnly: false,
-      });
     }
 
     const {
@@ -210,14 +179,6 @@ export class AuthController {
 
     if (result.accessToken) {
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
-      res.cookie('user_role', result.user.role, {
-        ...COOKIE_OPTIONS,
-        httpOnly: false,
-      });
-      res.cookie('account_type', result.user.accountType, {
-        ...COOKIE_OPTIONS,
-        httpOnly: false,
-      });
     }
 
     const {
@@ -260,11 +221,6 @@ export class AuthController {
       res.cookie('token', accessToken, COOKIE_OPTIONS);
     }
 
-    res.cookie('account_type', 'INSTITUTIONAL', {
-      ...COOKIE_OPTIONS,
-      httpOnly: false,
-    });
-
     return safeResult;
   }
 
@@ -279,14 +235,6 @@ export class AuthController {
       await this.authService.verifyAndRegister(dto);
 
     res.cookie('token', accessToken, COOKIE_OPTIONS);
-    res.cookie('user_role', safeData.user.role, {
-      ...COOKIE_OPTIONS,
-      httpOnly: false,
-    });
-    res.cookie('account_type', 'INSTITUTIONAL', {
-      ...COOKIE_OPTIONS,
-      httpOnly: false,
-    });
 
     return safeData;
   }
