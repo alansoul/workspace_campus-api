@@ -227,8 +227,15 @@ export class UniversityController {
       console.error('OAuth code exchange failed:', err);
     }
 
-    const frontendUrl =
-  process.env.FRONTEND_URL || 'https://workspace-campus-web.vercel.app';
+    let frontendUrl = process.env.FRONTEND_URL || 'https://workspace-campus-web.vercel.app';
+
+// Ensure the protocol is always present so Express does not treat it as a relative path
+if (!frontendUrl.startsWith('http://') && !frontendUrl.startsWith('https://')) {
+  frontendUrl = `https://${frontendUrl}`;
+}
+
+// Remove any trailing slash to avoid double slashes
+frontendUrl = frontendUrl.replace(/\/+$/, '');
 
 return res.redirect(`${frontendUrl}/academics?gmail_connected=true`);
   }
