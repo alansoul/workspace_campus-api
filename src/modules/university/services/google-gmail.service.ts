@@ -76,7 +76,20 @@ export class GoogleGmailService {
   }
 
   /**
-   * Recursively parses payload parts to find attached files (PDFs, images, sheets)
+   * Cleans raw HTML entities returned by Gmail (e.g. &#39; -> ')
+   */
+  private cleanHtmlEntities(str: string): string {
+    return str
+      .replace(/&#39;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ');
+  }
+
+  /**
+   * Recursively parses payload parts to extract file attachments
    */
   private extractAttachmentsFromPayload(payload?: GmailMessageDetail['payload']): ExtractedEmailAttachment[] {
     if (!payload?.parts) return [];
@@ -238,16 +251,24 @@ export class GoogleGmailService {
    * Calls Google Gmail API and retrieves strictly campus and academic emails
    * Filters out personal services (GitHub, Google security alerts, social media)
    */
-  async fetchRecentInboxEmails(userId: string, maxResults = 10) {
+  async fetchRecentInboxEmails(userId: string, maxResults = 25) {
     const accessToken = await this.getValidAccessToken(userId);
     if (!accessToken) return [];
 
     try {
-      // 1. Strict academic query: targets official campus domains and academic circular keywords
-      // Excludes third-party platform notifications and security alerts
+      // 1. Fetch user email ONCE to construct accurate authuser deep-links without loop overhead
+      const userRecord = (await (this.prisma.user as any).findUnique({
+        where: { id: userId },
+        select: { email: true },
+      })) as { email: string } | null;
+
+      const userEmail = userRecord?.email?.toLowerCase().trim();
+      const authUserQuery = userEmail ? `?authuser=${encodeURIComponent(userEmail)}` : '';
+
+      // 2. Comprehensive academic query: includes lab, experiment, notes, and circular keywords
       const academicFilter = [
         'label:INBOX',
-        '(from:(@iiitnr.edu.in) OR from:(edu.in) OR from:(ac.in) OR subject:(notice OR circular OR timetable OR assignment OR exam OR schedule OR quiz OR attendance OR coursework OR result OR seminar OR lecture))',
+        '(from:(@iiitnr.edu.in) OR from:(edu.in) OR from:(ac.in) OR subject:(notice OR circular OR timetable OR assignment OR exam OR schedule OR quiz OR attendance OR coursework OR result OR seminar OR lecture OR lab OR experiment OR material OR notes OR syllabus OR project OR workshop))',
         '-from:(github.com)',
         '-from:(accounts.google.com)',
         '-from:(notifications.google.com)',
@@ -269,7 +290,7 @@ export class GoogleGmailService {
       const listData = (await listRes.json()) as { messages?: Array<{ id: string }> };
       if (!listData.messages || listData.messages.length === 0) return [];
 
-      // 2. Fetch full detail for each email with secondary safety checks
+      // 3. Fetch full detail for each email with secondary safety checks
       const emails = [];
       const excludedSenders = ['github.com', 'accounts.google.com', 'no-reply@', 'noreply@'];
 
@@ -294,19 +315,21 @@ export class GoogleGmailService {
             continue;
           }
 
-          const decodedBody =
+          const rawBody =
             this.extractBodyFromPayload(fullMsg.payload) || fullMsg.snippet || '';
+          const decodedBody = this.cleanHtmlEntities(rawBody);
           const attachments = this.extractAttachmentsFromPayload(fullMsg.payload);
           const isUnread = Boolean(fullMsg.labelIds?.includes('UNREAD'));
 
-          // Exact Gmail Web deep-link to the specific thread/message
           const targetId = fullMsg.threadId || msg.id;
-          const gmailUrl = `https://mail.google.com/mail/#all/${targetId}`;
+
+          // Valid universal Gmail URL: switches directly to the authenticated campus session
+          const gmailUrl = `https://mail.google.com/mail/${authUserQuery}#all/${targetId}`;
 
           emails.push({
             id: msg.id,
-            sender,
-            subject,
+            sender: this.cleanHtmlEntities(sender),
+            subject: this.cleanHtmlEntities(subject),
             body: decodedBody,
             attachments,
             gmailUrl,
