@@ -7,20 +7,30 @@ interface GmailHeader {
 }
 
 interface GmailPart {
+  filename?: string;
   mimeType?: string;
-  body?: { data?: string };
+  body?: { data?: string; attachmentId?: string; size?: number };
   parts?: GmailPart[];
+}
+
+export interface ExtractedEmailAttachment {
+  filename: string;
+  mimeType: string;
+  size: number;
+  sizeFormatted: string;
+  attachmentId?: string;
 }
 
 interface GmailMessageDetail {
   id: string;
+  threadId?: string;
   internalDate: string;
   snippet?: string;
   labelIds?: string[];
   payload?: {
     headers?: GmailHeader[];
-    body?: { data?: string }; // <-- Added body
-    parts?: GmailPart[];       // <-- Added parts
+    body?: { data?: string };
+    parts?: GmailPart[];
   };
 }
 
@@ -63,6 +73,41 @@ export class GoogleGmailService {
       }
     }
     return '';
+  }
+
+  /**
+   * Recursively parses payload parts to find attached files (PDFs, images, sheets)
+   */
+  private extractAttachmentsFromPayload(payload?: GmailMessageDetail['payload']): ExtractedEmailAttachment[] {
+    if (!payload?.parts) return [];
+    const attachments: ExtractedEmailAttachment[] = [];
+
+    const traverse = (parts?: GmailPart[]) => {
+      if (!parts) return;
+      for (const part of parts) {
+        if (part.filename && part.filename.trim().length > 0) {
+          const rawBytes = part.body?.size || 0;
+          const sizeFormatted =
+            rawBytes > 1024 * 1024
+              ? `${(rawBytes / (1024 * 1024)).toFixed(1)} MB`
+              : `${Math.round(rawBytes / 1024) || 1} KB`;
+
+          attachments.push({
+            filename: part.filename,
+            mimeType: part.mimeType || 'application/octet-stream',
+            size: rawBytes,
+            sizeFormatted,
+            attachmentId: part.body?.attachmentId,
+          });
+        }
+        if (part.parts) {
+          traverse(part.parts);
+        }
+      }
+    };
+
+    traverse(payload.parts);
+    return attachments;
   }
 
   /**
@@ -251,13 +296,20 @@ export class GoogleGmailService {
 
           const decodedBody =
             this.extractBodyFromPayload(fullMsg.payload) || fullMsg.snippet || '';
+          const attachments = this.extractAttachmentsFromPayload(fullMsg.payload);
           const isUnread = Boolean(fullMsg.labelIds?.includes('UNREAD'));
+
+          // Exact Gmail Web deep-link to the specific thread/message
+          const targetId = fullMsg.threadId || msg.id;
+          const gmailUrl = `https://mail.google.com/mail/#all/${targetId}`;
 
           emails.push({
             id: msg.id,
             sender,
             subject,
-            body: decodedBody.slice(0, 3000),
+            body: decodedBody,
+            attachments,
+            gmailUrl,
             isUnread,
             receivedAt: new Date(Number(fullMsg.internalDate) || Date.now()).toISOString(),
           });
