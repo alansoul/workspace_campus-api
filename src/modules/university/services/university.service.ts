@@ -406,7 +406,7 @@ export class UniversityService {
       organizerContact?: string;
     },
   ) {
-    return (this.prisma as any).campusEvent.create({
+    const event = await (this.prisma as any).campusEvent.create({
       data: {
         universityId,
         authorId,
@@ -417,10 +417,16 @@ export class UniversityService {
         venue: body.venue,
         organizer: body.organizer || 'Campus Community',
         organizerContact: body.organizerContact || null,
-        isInterested: false,
         attendees: [],
       },
     });
+
+    return {
+      ...event,
+      registeredCount: 0,
+      attendees: [],
+      isInterested: false,
+    };
   }
 
   async toggleEventInterest(
@@ -497,7 +503,6 @@ export class UniversityService {
       const updated = await (this.prisma as any).campusEvent.update({
         where: { id },
         data: {
-          isInterested: interested,
           attendees,
         },
       });
