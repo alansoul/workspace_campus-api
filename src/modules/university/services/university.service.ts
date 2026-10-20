@@ -780,4 +780,55 @@ export class UniversityService {
       })),
     });
   }
+
+  // ==========================================
+  // UNIVERSITY TIMETABLE PERSISTENCE
+  // ==========================================
+
+  async getTimetable(branch: string, semester: number, universityId = 'iiitnr') {
+    return (this.prisma as any).timetable.findUnique({
+      where: {
+        universityId_branch_semester: {
+          universityId,
+          branch,
+          semester: Number(semester),
+        },
+      },
+    });
+  }
+
+  async saveTimetable(dto: {
+    branch: string;
+    semester: number;
+    schedule: any;
+    roomNo?: string;
+    effectiveDate?: string;
+    universityId?: string;
+  }) {
+    const universityId = dto.universityId || 'iiitnr';
+    const semester = Number(dto.semester);
+
+    return (this.prisma as any).timetable.upsert({
+      where: {
+        universityId_branch_semester: {
+          universityId,
+          branch: dto.branch,
+          semester,
+        },
+      },
+      update: {
+        schedule: dto.schedule,
+        roomNo: dto.roomNo || null,
+        effectiveDate: dto.effectiveDate || null,
+      },
+      create: {
+        universityId,
+        branch: dto.branch,
+        semester,
+        schedule: dto.schedule,
+        roomNo: dto.roomNo || null,
+        effectiveDate: dto.effectiveDate || null,
+      },
+    });
+  }
 }

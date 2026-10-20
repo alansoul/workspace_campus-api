@@ -246,3 +246,19 @@ model LostFoundItem {
   @@index([universityId])
   @@schema("university")
 }
+
+model Timetable {
+  id           String   @id @default(uuid())
+  universityId String   @default("iiitnr")
+  branch       String   // e.g. "CSE", "ECE"
+  semester     Int      // e.g. 1, 2
+  roomNo       String?
+  effectiveDate String?
+  schedule     Json     // Stores the array of days and lecture slots
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([universityId, branch, semester])
+  @@index([universityId])
+  @@schema("university")
+}

@@ -12,12 +12,14 @@ import {
   Req,
   Query,
   UseGuards,
+  Optional,
 } from '@nestjs/common';
 import { UniversityService } from '../services/university.service.js';
 import { CampusEmailSyncService } from '../services/campus-email-sync.service.js';
 import { JwtAuthGuard } from '../../iam/guards/jwt-auth.guard.js';
 import { CurrentUser } from '../../iam/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../../iam/guards/jwt-auth.guard.js';
+import { ChatGateway } from '../../chat/chat.gateway.js';
 import {
   ClaimUniversityDto,
   RequestUniversityOtpDto,
@@ -106,8 +108,8 @@ export class UniversityController {
   constructor(
     private readonly universityService: UniversityService,
     private readonly emailSyncService: CampusEmailSyncService,
+    @Optional() private readonly chatGateway?: ChatGateway,
   ) {}
-
 
 
  // 1. Google Gmail Sync Status (Queried per-user from PostgreSQL)
@@ -522,6 +524,60 @@ export class UniversityController {
     return this.universityService.createQuestion(user.universityId, user.sub, dto);
   }
 
+  // 13. University Timetable Persistence & Real-time Live Broadcast
+  @Get('timetable')
+  async getTimetable(
+    @Query('branch') branch?: string,
+    @Query('semester') semester?: string,
+    @Query('universityId') universityId?: string,
+  ) {
+    const selectedBranch = branch || 'CSE';
+    const selectedSem = semester ? Number(semester) : 1;
+    const selectedUni = universityId || 'iiitnr';
+
+    const timetable = await this.universityService.getTimetable(
+      selectedBranch,
+      selectedSem,
+      selectedUni,
+    );
+
+    return timetable || { schedule: [], roomNo: '', effectiveDate: '' };
+  }
+
+  @Post('timetable')
+  @HttpCode(HttpStatus.OK)
+  async saveTimetable(
+    @Body()
+    dto: {
+      branch: string;
+      semester: number;
+      schedule: any[];
+      roomNo?: string;
+      effectiveDate?: string;
+      universityId?: string;
+    },
+  ) {
+    const saved = await this.universityService.saveTimetable({
+      branch: dto.branch || 'CSE',
+      semester: Number(dto.semester) || 1,
+      schedule: dto.schedule,
+      roomNo: dto.roomNo,
+      effectiveDate: dto.effectiveDate,
+      universityId: dto.universityId || 'iiitnr',
+    });
+
+    // Broadcast live event via Socket.IO to all connected student clients
+    if (this.chatGateway?.server) {
+      this.chatGateway.server.emit('timetable:updated', {
+        branch: dto.branch || 'CSE',
+        semester: Number(dto.semester) || 1,
+        universityId: dto.universityId || 'iiitnr',
+      });
+    }
+
+    return { success: true, data: saved };
+  }
+
   // Dynamic AI Timetable Parser configured for Gemini 3.5 Flash-Lite
   @Post('timetable/parse-document')
   @UseGuards(JwtAuthGuard)
@@ -761,4 +817,6 @@ Return ONLY a valid JSON array of objects with this structure (no markdown fence
 
     return { success: false, error: 'Failed to extract faculty from document.' };
   }
+
+  
 }
