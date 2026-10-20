@@ -743,4 +743,41 @@ export class UniversityService {
       include: { author: { select: { fullName: true } } },
     });
   }
+
+  async getResources(universityId: string) {
+    const [faculty, lostItems] = await Promise.all([
+      this.prisma.facultyMember.findMany({
+        where: { universityId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.lostFoundItem.findMany({
+        where: { universityId },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    return { faculty, lostItems };
+  }
+
+  async saveExtractedFaculty(
+    universityId: string,
+    facultyList: Array<{
+      name: string;
+      department?: string;
+      cabin?: string;
+      officeHours?: string;
+      email?: string;
+    }>,
+  ) {
+    if (!facultyList.length) return { count: 0 };
+    return this.prisma.facultyMember.createMany({
+      data: facultyList.map((f) => ({
+        universityId,
+        name: f.name,
+        department: f.department || 'Academics',
+        cabin: f.cabin || 'Main Campus',
+        officeHours: f.officeHours || 'By appointment',
+        email: f.email || '',
+      })),
+    });
+  }
 }

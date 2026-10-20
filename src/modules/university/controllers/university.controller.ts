@@ -663,4 +663,102 @@ Return ONLY a strict raw JSON object with this exact structure (no markdown fenc
 
     return { success: false, error: lastError };
   }
+
+  // 11. Faculty Directory & Lost & Found Resources
+  @Get('resources')
+  @UseGuards(JwtAuthGuard)
+  async getResources(@CurrentUser() user: AuthenticatedUser) {
+    return this.universityService.getResources(user.universityId);
+  }
+
+  // 12. Automated AI Extraction from Faculty Document (Image/PDF)
+  @Post('faculty/auto-extract')
+  @UseGuards(JwtAuthGuard)
+  async autoExtractFaculty(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { fileBase64: string; mimeType: string },
+  ) {
+    const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+    if (!apiKey) {
+      return { success: false, error: 'GEMINI_API_KEY is missing from environment variables.' };
+    }
+
+    const cleanBase64 = (body.fileBase64 || '')
+      .replace(/^data:.*?;base64,/, '')
+      .replace(/[\r\n\s]/g, '');
+
+    const prompt = `You are an academic roster parser. Extract all faculty staff, professors, and instructors from this document.
+Return ONLY a valid JSON array of objects with this structure (no markdown fences, no backticks, no comments):
+[
+  {
+    "name": "Full name with title (e.g. Dr. John Doe)",
+    "department": "Department or subject (e.g. Computer Science)",
+    "cabin": "Cabin or room number if available",
+    "officeHours": "Visiting or office hours if available, otherwise 'By appointment'",
+    "email": "Valid email address if present, otherwise empty string"
+  }
+]`;
+
+    const requestPayload = {
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: body.mimeType || 'application/pdf',
+                data: cleanBase64,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        responseMimeType: 'application/json',
+      },
+    };
+
+    const models = [
+      'gemini-3.5-flash-lite',
+      'gemini-flash-lite-latest',
+      'gemini-1.5-flash-lite',
+      'gemini-3.5-flash',
+    ];
+
+    for (const model of models) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey,
+            },
+            body: JSON.stringify(requestPayload),
+          },
+        );
+
+        const json = await response.json();
+        const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (rawText) {
+          const cleanJson = rawText
+            .replace(/^```json\s*/i, '')
+            .replace(/^```\s*/i, '')
+            .replace(/```\s*$/, '')
+            .trim();
+
+          const extractedList = JSON.parse(cleanJson);
+          if (Array.isArray(extractedList) && extractedList.length > 0) {
+            await this.universityService.saveExtractedFaculty(user.universityId, extractedList);
+            return { success: true, count: extractedList.length };
+          }
+        }
+      } catch (err: unknown) {
+        console.warn(`Faculty extraction failed on model ${model}:`, err);
+      }
+    }
+
+    return { success: false, error: 'Failed to extract faculty from document.' };
+  }
 }

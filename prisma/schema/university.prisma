@@ -219,3 +219,30 @@ model StudentTask {
   @@index([userId])
   @@schema("university")
 }
+
+model FacultyMember {
+  id           String   @id @default(uuid())
+  universityId String
+  name         String
+  department   String
+  cabin        String?
+  officeHours  String?
+  email        String?
+  createdAt    DateTime @default(now())
+
+  @@index([universityId])
+  @@schema("university")
+}
+
+model LostFoundItem {
+  id           String   @id @default(uuid())
+  universityId String
+  title        String
+  location     String
+  status       String   @default("Found") // "Found" | "Claimed" | "Lost"
+  reportedDate String
+  createdAt    DateTime @default(now())
+
+  @@index([universityId])
+  @@schema("university")
+}
