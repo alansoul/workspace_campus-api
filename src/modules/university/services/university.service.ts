@@ -785,16 +785,34 @@ export class UniversityService {
   // UNIVERSITY TIMETABLE PERSISTENCE
   // ==========================================
 
-  async getTimetable(branch: string, semester: number, universityId = 'iiitnr') {
-    return (this.prisma as any).timetable.findUnique({
+  async getTimetable(branch: string, semester: number, universityId?: string) {
+    const targetUni =
+      universityId && universityId !== 'null' && universityId !== 'undefined'
+        ? universityId
+        : 'iiitnr';
+
+    // 1. Try exact university + branch + semester match first
+    let record = await (this.prisma as any).timetable.findFirst({
       where: {
-        universityId_branch_semester: {
-          universityId,
+        branch,
+        semester: Number(semester),
+        OR: [{ universityId: targetUni }, { universityId: 'iiitnr' }],
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    // 2. Fallback: If student/admin universityId format differs, return latest schedule for this branch & semester
+    if (!record) {
+      record = await (this.prisma as any).timetable.findFirst({
+        where: {
           branch,
           semester: Number(semester),
         },
-      },
-    });
+        orderBy: { updatedAt: 'desc' },
+      });
+    }
+
+    return record || { schedule: [], roomNo: '', effectiveDate: '' };
   }
 
   async saveTimetable(dto: {
@@ -805,7 +823,10 @@ export class UniversityService {
     effectiveDate?: string;
     universityId?: string;
   }) {
-    const universityId = dto.universityId || 'iiitnr';
+    const universityId =
+      dto.universityId && dto.universityId !== 'null' && dto.universityId !== 'undefined'
+        ? dto.universityId
+        : 'iiitnr';
     const semester = Number(dto.semester);
 
     return (this.prisma as any).timetable.upsert({
