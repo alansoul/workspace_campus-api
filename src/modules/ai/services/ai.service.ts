@@ -121,10 +121,21 @@ export class AiService {
       parts: [{ text: m.content }],
     }));
 
+    // Zero-Knowledge Security Policy
+    const privacyInstructions = `
+CRITICAL PRIVACY & ZERO-KNOWLEDGE POLICY:
+1. ZERO PERSONAL IDENTIFIER ACCESS: You must NEVER reveal, repeat, construct, or guess personal email addresses, phone numbers, passwords, or private profile credentials of any student, faculty, or staff member.
+2. If asked about your email, the user's email, or any other person's email, refuse politely:
+   "For security and privacy reasons, I do not have access to private email addresses or personal account credentials."
+3. You must NOT attempt to guess, construct, or formulate institutional email addresses from names or roll numbers.
+4. Assist only with academic curriculum, schedules, coursework, and general campus notices.`;
+
     // Inject System Prompt + Live Screen Context
-    let systemPrompt = `[SYSTEM INSTRUCTION: You are the Campus AI Academic Copilot. Model: ${modelName}. Thinking Level: ${thinkingLevel} (${reasoningInstruction})]`;
+    let systemPrompt = `[SYSTEM INSTRUCTION: You are the Campus AI Academic Copilot. Model: ${modelName}. Thinking Level: ${thinkingLevel} (${reasoningInstruction}).\n${privacyInstructions}]`;
     if (pageContext) {
-      systemPrompt += `\n[LIVE SCREEN / PAGE CONTEXT THAT THE STUDENT IS CURRENTLY VIEWING:\n${pageContext}\nUse this live portal data to accurately answer any questions regarding their timetable, classes, professors, rooms, notices, or assignments.]`;
+      // Secondary backend sanitization for screen context
+      const cleanContext = pageContext.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi, '[PROTECTED_EMAIL]');
+      systemPrompt += `\n[LIVE SCREEN / PAGE CONTEXT THAT THE STUDENT IS CURRENTLY VIEWING:\n${cleanContext}\nUse this live portal data to accurately answer any questions regarding their timetable, classes, professors, rooms, notices, or assignments.]`;
     }
 
     formattedContents.unshift({
@@ -149,7 +160,7 @@ export class AiService {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-goog-api-key': apiKey, // Required for AQ.Ab8... authentication keys
+              'x-goog-api-key': apiKey,
             },
             body: JSON.stringify({ contents: formattedContents }),
           },
@@ -162,7 +173,9 @@ export class AiService {
           const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
           if (reply) {
             this.logger.log(`Gemini response generated using active model: ${model}`);
-            return reply;
+            // Final safety filter: redact any email address pattern before the reply leaves the server
+            const sanitizedReply = reply.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi, '[PROTECTED_EMAIL]');
+            return sanitizedReply;
           }
         } else {
           const errText = await response.text();
