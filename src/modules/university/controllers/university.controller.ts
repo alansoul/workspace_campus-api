@@ -500,6 +500,19 @@ export class UniversityController {
     );
   }
 
+  @Delete('attendance/:subjectName')
+  @UseGuards(JwtAuthGuard)
+  deleteAttendance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('subjectName') subjectName: string,
+  ) {
+    return this.universityService.deleteAttendance(
+      user.universityId,
+      user.sub,
+      decodeURIComponent(subjectName),
+    );
+  }
+
   // 10. Academic Notes & Question Forum
   @Get('notes')
   @UseGuards(JwtAuthGuard)

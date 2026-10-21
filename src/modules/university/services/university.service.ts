@@ -585,6 +585,19 @@ export class UniversityService {
     });
   }
 
+  async deleteAttendance(universityId: string, studentId: string, subjectName: string) {
+    return (this.prisma as any).attendanceRecord.deleteMany({
+      where: {
+        studentId,
+        subject: {
+          equals: subjectName,
+          mode: 'insensitive',
+        },
+        OR: [{ universityId }, { universityId: 'iiitnr' }],
+      },
+    });
+  }
+
   async logAttendance(
     universityId: string,
     studentId: string,
