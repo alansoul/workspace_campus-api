@@ -2,6 +2,7 @@
 import {
   Body,
   Controller,
+  Delete, // 🟢 Add Delete here
   Get,
   HttpCode,
   HttpStatus,
@@ -816,6 +817,43 @@ Return ONLY a valid JSON array of objects with this structure (no markdown fence
     }
 
     return { success: false, error: 'Failed to extract faculty from document.' };
+  }
+
+  // 14. Exam Schedules Persistence
+  @Get('exams')
+  @UseGuards(JwtAuthGuard)
+  getExams(@CurrentUser() user: AuthenticatedUser) {
+    return this.universityService.getExams(user.universityId);
+  }
+
+  @Post('exams')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  createExam(@CurrentUser() user: AuthenticatedUser, @Body() body: any) {
+    return this.universityService.createExam(user.universityId, body);
+  }
+
+  // 15. Practicals Persistence
+  @Get('practicals')
+  @UseGuards(JwtAuthGuard)
+  getPracticals(@CurrentUser() user: AuthenticatedUser) {
+    return this.universityService.getPracticals(user.universityId);
+  }
+
+  @Post('practicals')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  createPractical(@CurrentUser() user: AuthenticatedUser, @Body() body: any) {
+    return this.universityService.createPractical(user.universityId, body);
+  }
+
+  @Patch('practicals/:id/complete')
+  @UseGuards(JwtAuthGuard)
+  togglePracticalComplete(
+    @Param('id') id: string,
+    @Body() body: { completed: boolean },
+  ) {
+    return this.universityService.togglePracticalComplete(id, body.completed);
   }
 
   

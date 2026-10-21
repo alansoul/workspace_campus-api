@@ -262,3 +262,37 @@ model Timetable {
   @@index([universityId])
   @@schema("university")
 }
+
+model Exam {
+  id           String   @id @default(uuid())
+  universityId String
+  title        String
+  subject      String
+  type         String   @default("Theory")
+  dateStr      String
+  timeStr      String?
+  room         String?
+  syllabus     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("exams")
+  @@schema("university")
+}
+
+model Practical {
+  id            String   @id @default(uuid())
+  universityId  String
+  title         String
+  subject       String
+  labName       String?
+  faculty       String?
+  dueInDaysText String?
+  completed     Boolean  @default(false)
+  tags          String[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("practicals")
+  @@schema("university")
+}

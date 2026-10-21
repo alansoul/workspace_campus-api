@@ -857,4 +857,71 @@ export class UniversityService {
       },
     });
   }
+
+  // ==========================================
+  // EXAMS & PRACTICALS PERSISTENCE
+  // ==========================================
+
+  async getExams(universityId: string) {
+    try {
+      return await (this.prisma as any).exam.findMany({
+        where: {
+          OR: [{ universityId }, { universityId: 'iiitnr' }],
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  async createExam(universityId: string, data: any) {
+    return (this.prisma as any).exam.create({
+      data: {
+        universityId: universityId || 'iiitnr',
+        title: data.title,
+        subject: data.subject,
+        type: data.type || 'Mid-Sem',
+        dateStr: data.dateStr,
+        timeStr: data.timeStr || '',
+        room: data.room || '',
+        syllabus: data.syllabus || '',
+      },
+    });
+  }
+
+  async getPracticals(universityId: string) {
+    try {
+      return await (this.prisma as any).practical.findMany({
+        where: {
+          OR: [{ universityId }, { universityId: 'iiitnr' }],
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  async createPractical(universityId: string, data: any) {
+    return (this.prisma as any).practical.create({
+      data: {
+        universityId: universityId || 'iiitnr',
+        title: data.title,
+        subject: data.subject,
+        labName: data.labName || 'Lab 1',
+        faculty: data.faculty || 'Faculty In-Charge',
+        dueInDaysText: data.dueInDaysText || 'Due soon',
+        tags: Array.isArray(data.tags) ? data.tags : ['Lab Manual'],
+        completed: false,
+      },
+    });
+  }
+
+  async togglePracticalComplete(id: string, completed: boolean) {
+    return (this.prisma as any).practical.updateMany({
+      where: { id },
+      data: { completed },
+    });
+  }
 }
