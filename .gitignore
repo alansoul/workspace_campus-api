@@ -51,3 +51,11 @@ Thumbs.db
 export.js
 project_export.txt
 *.txt
+.gmail_session.json
+
+
+# Security & Session Token Caches
+.gmail_session.json
+uploads/
+*.pem
+*.key

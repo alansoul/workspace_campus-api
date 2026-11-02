@@ -12,8 +12,10 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   // Safe ESM body-parser limit (uses default express import)
-  app.use(express.json({ limit: '100mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+  // Restrict global JSON body size to 2MB to protect against DoS attacks.
+  // Large files (up to 100MB) are streamed via Multer in chat.controller.ts.
+  app.use(express.json({ limit: '2mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
   // Configure Helmet to allow cross-origin communication between port 3000 and port 4000
   app.use(
