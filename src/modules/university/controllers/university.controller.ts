@@ -559,8 +559,10 @@ export class UniversityController {
   }
 
   @Post('timetable')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async saveTimetable(
+    @CurrentUser() user: AuthenticatedUser,
     @Body()
     dto: {
       branch: string;
@@ -568,24 +570,26 @@ export class UniversityController {
       schedule: any[];
       roomNo?: string;
       effectiveDate?: string;
-      universityId?: string;
     },
   ) {
+    // Bind strictly to verified session claims, discarding any client-provided universityId
+    const targetUniversityId = user.universityId || 'iiitnr';
+
     const saved = await this.universityService.saveTimetable({
       branch: dto.branch || 'CSE',
       semester: Number(dto.semester) || 1,
       schedule: dto.schedule,
       roomNo: dto.roomNo,
       effectiveDate: dto.effectiveDate,
-      universityId: dto.universityId || 'iiitnr',
+      universityId: targetUniversityId,
     });
 
-    // Broadcast live event via Socket.IO to all connected student clients
+    // Broadcast live event via Socket.IO strictly to the tenant room
     if (this.chatGateway?.server) {
       this.chatGateway.server.emit('timetable:updated', {
         branch: dto.branch || 'CSE',
         semester: Number(dto.semester) || 1,
-        universityId: dto.universityId || 'iiitnr',
+        universityId: targetUniversityId,
       });
     }
 

@@ -76,7 +76,7 @@ export class AuthController {
 
       // Set fallback cookies on the API domain
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
-      
+     
 
       // Redirect directly to /login with token for Vercel first-party cookie hydration
       const targetUrl = new URL('/login', frontendUrl);
