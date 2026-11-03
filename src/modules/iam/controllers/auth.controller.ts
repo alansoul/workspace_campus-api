@@ -66,6 +66,7 @@ export class AuthController {
   googleAuth() {}
 
   // 🌐 GOOGLE OAUTH: Step 2 - Callback after user approves
+  // 🌐 GOOGLE OAUTH: Step 2 - Callback after user approves
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleAuthCallback(@Req() req: any, @Res() res: Response) {
@@ -74,11 +75,19 @@ export class AuthController {
     try {
       const result = await this.authService.handleGoogleOAuthLogin(req.user);
 
-      // Set the HttpOnly, Secure authentication cookie directly on the response
+      // Set cookie on the backend domain
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
 
-      // Clean redirect directly to /dashboard with zero tokens in URL query params
-      const targetUrl = new URL('/dashboard', frontendUrl);
+      // Route through the frontend Next.js cookie bridge to set the cookie on vercel.app
+      const targetUrl = new URL('/api/auth/callback', frontendUrl);
+      targetUrl.searchParams.set('token', result.accessToken);
+      if (result.user?.role) {
+        targetUrl.searchParams.set('role', result.user.role);
+      }
+      if (result.user?.accountType) {
+        targetUrl.searchParams.set('accountType', result.user.accountType);
+      }
+
       return res.redirect(targetUrl.toString());
     } catch (err: unknown) {
       const msg =
