@@ -6,7 +6,6 @@
     "outDir": "./dist",
     "rootDir": ".",
     "ignoreDeprecations": "6.0",
-    "baseUrl": "./",
     "strict": true,
     "strictPropertyInitialization": false,
     "noImplicitAny": true,
