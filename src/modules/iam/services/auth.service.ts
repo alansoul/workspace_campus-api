@@ -866,4 +866,138 @@ export class AuthService {
       fullName,
     });
   }
+
+  /**
+   * Generates a short-lived 15-minute Access Token and a secure random Refresh Token.
+   * Stores the SHA-256 hash of the Refresh Token in the PostgreSQL `Session` table.
+   */
+  async createSession(
+    userId: string,
+    email: string,
+    role: string,
+    universityId: string | null | undefined,
+    fullName: string,
+    deviceInfo?: string,
+    ipAddress?: string,
+  ) {
+    // 1. Short-lived Access Token (15 minutes)
+    const accessToken = await this.jwtService.signAsync(
+      {
+        sub: userId,
+        email,
+        role,
+        universityId: universityId || null,
+        fullName,
+      },
+      { expiresIn: '15m' },
+    );
+
+    // 2. Cryptographically secure 64-character random refresh token
+    const refreshToken = crypto.randomBytes(32).toString('hex');
+    const refreshTokenHash = crypto
+      .createHash('sha256')
+      .update(refreshToken)
+      .digest('hex');
+
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // 3. Persist session in Neon PostgreSQL
+    const session = await this.prisma.session.create({
+      data: {
+        userId,
+        refreshTokenHash,
+        deviceInfo: deviceInfo || 'Unknown Client',
+        ipAddress: ipAddress || 'Unknown IP',
+        expiresAt,
+        isRevoked: false,
+      },
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      sessionId: session.id,
+    };
+  }
+
+  /**
+   * Validates the refresh token, detects token reuse/theft, and issues rotated tokens.
+   */
+  async rotateRefreshToken(
+    rawRefreshToken: string,
+    deviceInfo?: string,
+    ipAddress?: string,
+  ) {
+    if (!rawRefreshToken) {
+      throw new UnauthorizedException('Refresh token is required');
+    }
+
+    const incomingHash = crypto
+      .createHash('sha256')
+      .update(rawRefreshToken)
+      .digest('hex');
+
+    const existingSession = await this.prisma.session.findUnique({
+      where: { refreshTokenHash: incomingHash },
+      include: { user: true },
+    });
+
+    // Anomaly Detection: Token reuse or expired session
+    if (!existingSession) {
+      throw new UnauthorizedException('Invalid or expired refresh session');
+    }
+
+    if (existingSession.isRevoked || existingSession.expiresAt < new Date()) {
+      // Security Incident: If an already-revoked token is re-submitted, revoke ALL sessions for this user
+      await this.prisma.session.updateMany({
+        where: { userId: existingSession.userId },
+        data: { isRevoked: true },
+      });
+      throw new UnauthorizedException('Session revoked due to token reuse detection');
+    }
+
+    // Revoke the old session before issuing the new one
+    await this.prisma.session.update({
+      where: { id: existingSession.id },
+      data: { isRevoked: true },
+    });
+
+    // Create a fresh rotated session
+    return this.createSession(
+      existingSession.user.id,
+      existingSession.user.email,
+      existingSession.user.role,
+      existingSession.user.universityId,
+      existingSession.user.fullName,
+      deviceInfo,
+      ipAddress,
+    );
+  }
+
+  /**
+   * Explicitly revokes a specific session upon user logout.
+   */
+  async revokeSession(rawRefreshToken: string) {
+    if (!rawRefreshToken) return;
+
+    const hash = crypto
+      .createHash('sha256')
+      .update(rawRefreshToken)
+      .digest('hex');
+
+    await this.prisma.session.updateMany({
+      where: { refreshTokenHash: hash },
+      data: { isRevoked: true },
+    });
+  }
+
+  /**
+   * Revokes all active sessions across all devices for an account.
+   */
+  async revokeAllUserSessions(userId: string) {
+    await this.prisma.session.updateMany({
+      where: { userId },
+      data: { isRevoked: true },
+    });
+  }
 }

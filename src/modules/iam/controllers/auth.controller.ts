@@ -74,17 +74,11 @@ export class AuthController {
     try {
       const result = await this.authService.handleGoogleOAuthLogin(req.user);
 
-      // Set fallback cookies on the API domain
+      // Set the HttpOnly, Secure authentication cookie directly on the response
       res.cookie('token', result.accessToken, COOKIE_OPTIONS);
-     
 
-      // Redirect directly to /login with token for Vercel first-party cookie hydration
-      const targetUrl = new URL('/login', frontendUrl);
-      targetUrl.searchParams.set('token', result.accessToken);
-      targetUrl.searchParams.set('role', result.user.role);
-      targetUrl.searchParams.set('accountType', result.user.accountType);
-      targetUrl.searchParams.set('redirect', '/dashboard');
-
+      // Clean redirect directly to /dashboard with zero tokens in URL query params
+      const targetUrl = new URL('/dashboard', frontendUrl);
       return res.redirect(targetUrl.toString());
     } catch (err: unknown) {
       const msg =
@@ -245,6 +239,53 @@ export class AuthController {
   async getProfile(@CurrentUser() user: AuthenticatedUser) {
     const profile = await this.authService.getProfile(user.sub, user.email);
     return { user: profile };
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refreshSession(
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const rawRefreshToken =
+      req.cookies?.refresh_token ||
+      (req.headers['x-refresh-token'] as string);
+
+    const userAgent = req.headers['user-agent'];
+    const ip = req.ip;
+
+    const { accessToken, refreshToken } =
+      await this.authService.rotateRefreshToken(
+        rawRefreshToken,
+        userAgent,
+        ip,
+      );
+
+    res.cookie('token', accessToken, COOKIE_OPTIONS);
+    res.cookie('refresh_token', refreshToken, {
+      ...COOKIE_OPTIONS,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/api/auth/refresh',
+    });
+
+    return { success: true, message: 'Session refreshed successfully' };
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async logoutAllDevices(
+    @CurrentUser() user: AuthenticatedUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.authService.revokeAllUserSessions(user.sub);
+
+    res.clearCookie('token', { path: '/' });
+    res.clearCookie('refresh_token', { path: '/api/auth/refresh' });
+    res.clearCookie('user_role', { path: '/' });
+    res.clearCookie('account_type', { path: '/' });
+
+    return { message: 'Logged out of all active devices successfully' };
   }
 
   @Post('logout')
