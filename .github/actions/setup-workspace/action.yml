@@ -1,12 +1,12 @@
 name: 'Setup Workspace'
-description: 'Sets up Node.js, pnpm v12, and installs dependencies.'
+description: 'Sets up Node.js 22, pnpm v12, and installs dependencies.'
 runs:
   using: 'composite'
   steps:
-    - name: ⚙️ Setup Node.js
+    - name: ⚙️ Setup Node.js 22
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '22'
 
     - name: ⚙️ Install pnpm v12
       shell: bash
@@ -14,4 +14,6 @@ runs:
 
     - name: 📦 Install Dependencies
       shell: bash
-      run: pnpm install --no-frozen-lockfile
+      run: |
+        pnpm install --no-frozen-lockfile
+        pnpm add -w -D @oxlint/binding-linux-x64-gnu @rolldown/binding-linux-x64-gnu || true
