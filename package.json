@@ -76,6 +76,15 @@
     "vitest": "^4.1.2"
   },
   "pnpm": {
+    "supportedArchitectures": {
+      "os": [
+        "win32",
+        "linux"
+      ],
+      "cpu": [
+        "x64"
+      ]
+    },
     "onlyBuiltDependencies": [
       "@prisma/client",
       "@prisma/engines",
