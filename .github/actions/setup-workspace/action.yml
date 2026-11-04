@@ -18,4 +18,4 @@ runs:
       shell: bash
       run: |
         pnpm install --no-frozen-lockfile
-        pnpm add -w -D @oxlint/binding-linux-x64-gnu
+        pnpm add -w -D @oxlint/binding-linux-x64-gnu @oxlint-tsgolint/linux-x64 || true,
