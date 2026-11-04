@@ -26,8 +26,10 @@ import {
   RequestUniversityOtpDto,
   CreateNoteDto,
   CreateQuestionDto,
+  CreateExamDto,
+  CreatePracticalDto,
 } from '../dto/university.dto.js';
-import type { Response, Request } from 'express';
+import type { Response } from 'express';
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -846,8 +848,11 @@ Return ONLY a valid JSON array of objects with this structure (no markdown fence
   @Post('exams')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
-  createExam(@CurrentUser() user: AuthenticatedUser, @Body() body: any) {
-    return this.universityService.createExam(user.universityId, body);
+  createExam(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateExamDto,
+  ) {
+    return this.universityService.createExam(user.universityId, dto);
   }
 
   // 15. Practicals Persistence
@@ -860,8 +865,11 @@ Return ONLY a valid JSON array of objects with this structure (no markdown fence
   @Post('practicals')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
-  createPractical(@CurrentUser() user: AuthenticatedUser, @Body() body: any) {
-    return this.universityService.createPractical(user.universityId, body);
+  createPractical(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreatePracticalDto,
+  ) {
+    return this.universityService.createPractical(user.universityId, dto);
   }
 
   @Patch('practicals/:id/complete')
