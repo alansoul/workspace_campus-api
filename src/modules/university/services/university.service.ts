@@ -541,11 +541,11 @@ export class UniversityService {
       });
 
       if (!existing) {
-        // If it's a default preset card (like asg-1 or asg-2), persist it to PostgreSQL on the fly
+        // Persist default preset card scoped strictly to the student's authenticated university
         return await (this.prisma as any).assignment.create({
           data: {
             id,
-            universityId: universityId || 'default-university',
+            universityId: universityId || 'iiitnr',
             title:
               id === 'asg-1'
                 ? 'C Programming — Pointer Array Dynamic Allocation'
@@ -564,12 +564,17 @@ export class UniversityService {
         });
       }
 
+      // 🛡️ Multi-Tenant Gate: Prevent cross-tenant mutation of another university's coursework
+      if (universityId && existing.universityId && existing.universityId !== universityId) {
+        throw new BadRequestException('Unauthorized: Assignment belongs to a different university.');
+      }
+
       return await (this.prisma as any).assignment.update({
         where: { id },
         data: { status },
       });
-    } catch {
-      // Graceful fallback so transient database issues never break the client UI
+    } catch (err: unknown) {
+      if (err instanceof BadRequestException) throw err;
       return { id, status, synced: true };
     }
   }
