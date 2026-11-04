@@ -1,6 +1,13 @@
 packages:
   - '.'
 
+supportedArchitectures:
+  os:
+    - current
+    - linux
+  cpu:
+    - x64
+
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
