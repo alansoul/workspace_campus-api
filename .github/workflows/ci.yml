@@ -36,11 +36,11 @@ jobs:
 
       - name: 🧹 Lint Code
         run: pnpm lint
-        continue-on-error: true
+        continue-on-error: false
 
       - name: 🧪 Run Tests
         run: pnpm test
-        continue-on-error: true
+        continue-on-error: false
 
       - name: 🏗️ Build Backend
         run: pnpm build

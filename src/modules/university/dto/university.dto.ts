@@ -87,6 +87,7 @@ export class CreateNoteDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(500)
+  @Matches(/^https?:\/\//i, { message: 'fileUrl must be a valid HTTP or HTTPS URL.' })
   fileUrl!: string;
 }
 

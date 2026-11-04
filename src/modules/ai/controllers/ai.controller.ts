@@ -1,3 +1,4 @@
+// campus-api/src/modules/ai/controllers/ai.controller.ts
 import {
   Body,
   Controller,
@@ -6,29 +7,24 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { AiService, GeminiThinkingLevel } from '../services/ai.service.js';
+import { Throttle } from '@nestjs/throttler';
+import { AiService } from '../services/ai.service.js';
 import { JwtAuthGuard } from '../../iam/guards/jwt-auth.guard.js';
-
-interface ChatRequestPayload {
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-  model?: string;
-  modelName?: string;
-  thinkingLevel?: GeminiThinkingLevel;
-  userApiKey?: string;
-  pageContext?: string;
-}
+import { ChatRequestDto, ValidateApiKeyDto } from '../dto/ai.dto.js';
 
 @Controller('ai')
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 
   /**
-   * Main chat endpoint supporting live models, custom user API keys, and screen context
+   * Main chat endpoint supporting live models, user API keys, and screen context.
+   * Throttled to 20 queries/min per IP to prevent Gemini API quota drain.
    */
   @Post('chat')
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
-  async chatWithCampusAi(@Body() payload: ChatRequestPayload) {
+  async chatWithCampusAi(@Body() payload: ChatRequestDto) {
     const reply = await this.aiService.chat(
       payload.messages,
       payload.model || 'gemini-3.5-flash-lite',
@@ -46,12 +42,14 @@ export class AiController {
   }
 
   /**
-   * Validates whether a Gemini API key is valid and has active quota
+   * Validates whether a user's custom Gemini API key is active.
+   * Throttled to 10 attempts/min.
    */
   @Post('validate-key')
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
-  async validateKey(@Body() body: { apiKey: string }) {
-    return this.aiService.validateApiKey(body.apiKey);
+  async validateKey(@Body() dto: ValidateApiKeyDto) {
+    return this.aiService.validateApiKey(dto.apiKey);
   }
 }
