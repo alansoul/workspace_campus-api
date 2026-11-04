@@ -77,7 +77,8 @@
     "vitest": "^4.1.2"
   },
   "optionalDependencies": {
-    "@oxlint/binding-linux-x64-gnu": "^1.86.0"
+    "@oxlint/binding-linux-x64-gnu": "^1.86.0",
+    "@rolldown/binding-linux-x64-gnu": "^1.2.12"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
