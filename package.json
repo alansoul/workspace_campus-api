@@ -76,18 +76,9 @@
     "vitest": "^4.1.2"
   },
   "optionalDependencies": {
-    "@oxlint/binding-linux-x64-gnu": "^1.58.0"
+    "@oxlint/binding-linux-x64-gnu": "^1.86.0"
   },
   "pnpm": {
-    "supportedArchitectures": {
-      "os": [
-        "win32",
-        "linux"
-      ],
-      "cpu": [
-        "x64"
-      ]
-    },
     "onlyBuiltDependencies": [
       "@prisma/client",
       "@prisma/engines",

@@ -16,4 +16,6 @@ runs:
 
     - name: 📦 Install Dependencies
       shell: bash
-      run: pnpm install --no-frozen-lockfile
+      run: |
+        pnpm install --no-frozen-lockfile
+        pnpm add -D @oxlint/binding-linux-x64-gnu
