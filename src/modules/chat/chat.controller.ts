@@ -9,6 +9,9 @@ import {
   UploadedFile,
   Res,
   BadRequestException,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import multer from 'multer';
@@ -17,6 +20,10 @@ import { existsSync, mkdirSync } from 'fs';
 import type { Response } from 'express';
 import { AccessToken } from 'livekit-server-sdk';
 import { ChatService } from './chat.service.js';
+import { JwtAuthGuard } from '../iam/guards/jwt-auth.guard.js';
+import { CurrentUser } from '../iam/decorators/current-user.decorator.js';
+import type { AuthenticatedUser } from '../iam/guards/jwt-auth.guard.js';
+import { CreateChannelDto, StartDirectChatDto } from './dto/chat.dto.js';
 
 const uploadDir = './uploads';
 if (!existsSync(uploadDir)) {
@@ -32,7 +39,9 @@ export class ChatController {
    * Issues cryptographically signed JWT tokens for video/voice call rooms
    */
   @Get('livekit/token')
+  @UseGuards(JwtAuthGuard)
   async getLiveKitToken(
+    @CurrentUser() user: AuthenticatedUser,
     @Query('room') room: string,
     @Query('userId') queryUserId?: string,
     @Query('username') queryUsername?: string,
@@ -50,9 +59,9 @@ export class ChatController {
       );
     }
 
-    const identity =
-      queryUserId || `user_${Math.random().toString(36).substring(2, 9)}`;
-    const name = queryUsername || 'Campus Peer';
+    // Prioritize cryptographically verified token claims over query parameters
+    const identity = user?.sub || queryUserId || `user_${Math.random().toString(36).substring(2, 9)}`;
+    const name = user?.fullName || queryUsername || user?.email?.split('@')[0] || 'Campus Peer';
 
     // Create an authenticated access token valid for 4 hours
     const at = new AccessToken(apiKey, apiSecret, {
@@ -74,31 +83,56 @@ export class ChatController {
   }
 
   @Get('channels')
-  async getChannels(@Query('userId') userId?: string) {
-    return this.chatService.getUserChannels(userId || 'system');
+  @UseGuards(JwtAuthGuard)
+  async getChannels(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('userId') queryUserId?: string,
+  ) {
+    const targetUserId = user?.sub || queryUserId || 'system';
+    return this.chatService.getUserChannels(targetUserId);
   }
 
   @Get('direct')
-  async getDirectChats(@Query('userId') userId: string) {
-    if (!userId) return [];
-    return this.chatService.getDirectConversations(userId);
+  @UseGuards(JwtAuthGuard)
+  async getDirectChats(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('userId') queryUserId?: string,
+  ) {
+    const targetUserId = user?.sub || queryUserId;
+    if (!targetUserId) return [];
+    return this.chatService.getDirectConversations(targetUserId);
   }
 
   @Post('direct')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
   async startDirectChat(
-    @Body() body: { currentUserId: string; friendEmail: string },
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: StartDirectChatDto,
   ) {
-    return this.chatService.startDirectChat(body.currentUserId, body.friendEmail);
+    const senderId = user?.sub || dto.currentUserId;
+    if (!senderId) {
+      throw new BadRequestException('Sender identity could not be verified.');
+    }
+    return this.chatService.startDirectChat(senderId, dto.friendEmail);
   }
 
   @Post('channels')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
   async createChannel(
-    @Body() body: { name: string; description?: string; userId: string },
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateChannelDto,
   ) {
-    return this.chatService.createChannel(body.userId, body.name, body.description);
+    const creatorId = user?.sub || dto.userId;
+    if (!creatorId) {
+      throw new BadRequestException('User identity could not be verified.');
+    }
+    return this.chatService.createChannel(creatorId, dto.name, dto.description);
   }
 
   @Get('channels/:channelId/messages')
+  @UseGuards(JwtAuthGuard)
   async getMessages(
     @Param('channelId') channelId: string,
     @Query('limit') limit?: string,
