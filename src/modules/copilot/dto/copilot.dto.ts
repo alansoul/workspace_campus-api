@@ -11,7 +11,11 @@ export class CopilotQueryOptionsDto {
 
   @IsOptional()
   @IsString()
-  domain?: string;
+  provider?: 'system' | 'gemini' | 'groq' | 'openai' | 'local' | 'huggingface';
+
+  @IsOptional()
+  @IsString()
+  userApiKey?: string;
 }
 
 export class QueryCopilotDto {
@@ -36,4 +40,6 @@ export interface CopilotResponseDto {
   agentSteps: AgentStepResult[];
   citations: string[];
   suggestedFollowUps: string[];
+  quotaExceeded?: boolean;
+  quotaRemaining?: number;
 }
