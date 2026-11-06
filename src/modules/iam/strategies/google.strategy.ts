@@ -15,6 +15,14 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     });
   }
 
+  // ⚡ FORCES GOOGLE TO SHOW ACCOUNT PICKER & CONSENT SCREEN EVERY TIME
+  override authorizationParams(): { [key: string]: string } {
+    return {
+      prompt: 'select_account consent', // 'select_account' opens the picker; 'consent' forces the permissions screen
+      access_type: 'offline',
+    };
+  }
+
   async validate(
     _accessToken: string,
     _refreshToken: string,
