@@ -59,52 +59,137 @@ export class CopilotService {
       this.quotaCache.set(userId, tracker);
     }
 
-    // 2. Fetch User Profile & Academic Records from Database
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        role: true,
+    
+  
+  // 2. Fetch authenticated user and institution
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      role: true,
+      universityId: true,
+      branch: true,
+      batch: true,
+      university: {
+        select: {
+          name: true,
+        },
       },
-    });
+    },
+  });
 
-    const studentName = user?.fullName || 'Scholar';
-    const studentEmail = user?.email || 'student@iiitnr.edu.in';
+  if (!user) {
+    throw new Error('Authenticated user not found.');
+  }
 
-    // 3. Triage Semantic Domain
-    const domain = this.classifyDomain(userPrompt);
-    steps.push({
-      agentName: 'Triage Router',
-      action: `Identified user intent for domain: ${domain}`,
-      status: 'completed',
-      resultSnippet: `Scope: ${domain}`,
-    });
+  // 3. Classify query domain
+  const domain = this.classifyDomain(userPrompt);
 
-    // 4. Query Dynamic Database Context
-    let dbContext = `User Identity: ${studentName} (${studentEmail}). Institution: Dr. SPM IIIT Naya Raipur.`;
+  steps.push({
+    agentName: 'Triage Router',
+    action: `Identified user intent: ${domain}`,
+    status: 'completed',
+    resultSnippet: domain,
+  });
 
-    if (domain === 'ACADEMICS') {
-      dbContext += ` Registered Courses: Calculus (MA101), Programming with C (CS101), Digital Electronics using Verilog (EC101). Overall Attendance: 82.4% (Threshold: 75.0%). Safe margin: 2 lectures.`;
-      if (citationsEnabled) citations.push('IIIT-NR Academic Attendance DB', 'Statutory Regulation §4');
-    } else if (domain === 'TIMETABLE') {
-      dbContext += ` Today's Schedule: 09:00 AM Calculus (Room 130), 10:00 AM Programming with C (Room 138), 02:00 PM Verilog Simulation Lab (Lab 304).`;
-      if (citationsEnabled) citations.push('Institutional Timetable DB', 'Classroom Allocation Matrix');
-    } else if (domain === 'FREELANCE') {
-      dbContext += ` Campus Marketplace: 3 active student bounties (Fullstack Next.js Prototype ₹12,000, Solana Smart Contract Review ₹18,500). Escrow locked.`;
-      if (citationsEnabled) citations.push('Smart Contract Escrow Ledger');
+  // 4. Retrieve actual attendance records
+  let dbContext = [
+    `Name: ${user.fullName}`,
+    `Email: ${user.email}`,
+    `Role: ${user.role}`,
+    `Institution: ${user.university?.name || 'Not assigned'}`,
+    `Branch: ${user.branch || 'Not specified'}`,
+    `Batch: ${user.batch ?? 'Not specified'}`,
+  ].join('\n');
+
+  if (domain === 'ACADEMICS' && user.universityId) {
+    const attendanceRecords =
+      await this.prisma.attendanceRecord.findMany({
+        where: {
+          studentId: user.id,
+          universityId: user.universityId,
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
+        select: {
+          subject: true,
+          totalClasses: true,
+          attended: true,
+          missed: true,
+          attendancePct: true,
+          isWarning: true,
+          statusText: true,
+        },
+      });
+
+    if (attendanceRecords.length > 0) {
+      const totalClasses = attendanceRecords.reduce(
+        (sum, record) => sum + record.totalClasses,
+        0,
+      );
+
+      const totalAttended = attendanceRecords.reduce(
+        (sum, record) => sum + record.attended,
+        0,
+      );
+
+      const overallAttendance =
+        totalClasses > 0
+          ? Math.round((totalAttended / totalClasses) * 100)
+          : null;
+
+      dbContext += `\n\nVerified Attendance Records:\n${JSON.stringify(
+        {
+          subjects: attendanceRecords,
+          overallAttendance,
+          totalClasses,
+          totalAttended,
+          threshold: 75,
+        },
+        null,
+        2,
+      )}`;
+
+      if (citationsEnabled) {
+        citations.push('Verified Student Attendance Records');
+      }
+    } else {
+      dbContext +=
+        '\n\nNo attendance records are currently available for this student.';
     }
+  }
 
-    steps.push({
-      agentName: 'Context Aggregator',
-      action: 'Extracted student ledger records & timetable slots',
-      status: 'completed',
-      resultSnippet: 'Database context compiled',
-    });
+  steps.push({
+    agentName: 'Context Aggregator',
+    action: 'Retrieved authenticated profile and relevant academic records',
+    status: 'completed',
+    resultSnippet: 'Database context compiled',
+  });
 
-    // 5. Execute Multi-Engine LLM
-    const systemPrompt = `You are Northstar Copilot, an AI campus guide for IIIT Naya Raipur students. Answer concisely and professionally using bullet points. Do not make up information. Use this verified student data:\n${dbContext}`;
+
+
+    
+  
+  const systemPrompt = `
+You are Northstar Copilot, an intelligent campus assistant.
+
+Provide accurate, concise and helpful answers.
+
+Rules:
+- Use verified database records for personal academic questions.
+- Never invent attendance, subjects, classes or institutional information.
+- Calculate attendance using actual attended and total class counts.
+- The attendance eligibility threshold supplied in context is 75%.
+- If records are unavailable, clearly explain that.
+- Never confuse general academic guidance with verified student records.
+
+Verified Context:
+${dbContext}
+`;
+
 
     let completion = '';
     try {
