@@ -39,7 +39,7 @@ export class CopilotService {
 
       if (tracker.count >= this.defaultDailyQuota) {
         return {
-          content: `⚠️ **Campus Daily Quota Reached (${this.defaultDailyQuota}/${this.defaultDailyQuota} queries used today)**\n\nTo ensure fair access to campus compute resources, the default free model quota has ended for today.\n\n* **Option 1 (BYOK - Free):** Open the model switcher in the header and paste your free **Groq**, **Hugging Face**, or **Google Gemini** API key.\n* **Option 2 (Local / Offline):** Select Local AI to run directly without external servers.`,
+          content: `⚠️ **Campus Daily Quota Reached (${this.defaultDailyQuota}/${this.defaultDailyQuota} queries used today)**\n\nTo ensure fair access to campus compute resources, the default free model quota has ended for today.\n\n* **Option 1 (BYOK - Free):** Open the model switcher in the header and paste your free **Groq**, **Hugging Face**, **OpenAI**, or **Google Gemini** API key.\n* **Option 2 (Local / Offline):** Select Local AI to run directly without external servers.`,
           agentSteps: [
             {
               agentName: 'Quota Guardian',
@@ -103,20 +103,26 @@ export class CopilotService {
       resultSnippet: 'Database context compiled',
     });
 
-    // 5. Execute Real Open-Weights LLM
+    // 5. Execute Multi-Engine LLM
     const systemPrompt = `You are Northstar Copilot, an AI campus guide for IIIT Naya Raipur students. Answer concisely and professionally using bullet points. Do not make up information. Use this verified student data:\n${dbContext}`;
-    
+
     let completion = '';
     try {
       completion = await this.executeLlm({
         provider: userApiKey ? (provider === 'system' ? 'groq' : provider) : 'system',
-        apiKey: userApiKey || process.env.GROQ_API_KEY || process.env.HUGGINGFACE_API_KEY || process.env.GEMINI_API_KEY || '',
+        apiKey:
+          userApiKey ||
+          process.env.GROQ_API_KEY ||
+          process.env.GEMINI_API_KEY ||
+          process.env.HUGGINGFACE_API_KEY ||
+          process.env.OPENAI_API_KEY ||
+          '',
         systemPrompt,
         userPrompt,
       });
     } catch (err: any) {
       this.logger.error(`AI execution failed: ${err.message}`);
-      completion = `I encountered an issue connecting to the AI provider. Here is your verified student data from our database:\n\n${dbContext}`;
+      completion = `I encountered an issue connecting to the AI provider (${err.message}). Here is your verified student data from our database:\n\n${dbContext}`;
     }
 
     steps.push({
@@ -156,37 +162,105 @@ export class CopilotService {
     systemPrompt: string;
     userPrompt: string;
   }): Promise<string> {
-    // 1. Groq Cloud (Free Open-Source Llama 3.3 70B & 3.1 8B)
-    if (opts.provider === 'groq' || (opts.provider === 'system' && opts.apiKey.startsWith('gsk_'))) {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    const key = opts.apiKey?.trim();
+
+    // 1. OpenAI / ChatGPT (BYO Key starting with sk- or provider === 'openai')
+    if (opts.provider === 'openai' || key?.startsWith('sk-')) {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${opts.apiKey}`,
+          Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+          model: 'gpt-4o-mini',
           messages: [
             { role: 'system', content: opts.systemPrompt },
             { role: 'user', content: opts.userPrompt },
           ],
-          temperature: 0.2,
+          temperature: 0.3,
           max_tokens: 800,
         }),
       });
 
-      if (!res.ok) throw new Error(`Groq Error: ${res.statusText}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(`OpenAI Error: ${errData?.error?.message || res.statusText}`);
+      }
+
       const data = await res.json();
       return data.choices?.[0]?.message?.content || 'No response generated.';
     }
 
-    // 2. Hugging Face Serverless / Inference Router (OpenAI Compatible)
-    if (opts.provider === 'huggingface' || opts.apiKey.startsWith('hf_')) {
+    // 2. Groq Cloud (Tries active models sequentially)
+    if (opts.provider === 'groq' || (opts.provider === 'system' && key?.startsWith('gsk_'))) {
+      const candidateModels = [
+        'llama-3.1-8b-instant',
+        'openai/gpt-oss-120b',
+        'openai/gpt-oss-20b',
+        'qwen/qwen3.8-27b',
+      ];
+
+      let lastGroqError: Error | null = null;
+
+      for (const model of candidateModels) {
+        try {
+          const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${key}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: 'system', content: opts.systemPrompt },
+                { role: 'user', content: opts.userPrompt },
+              ],
+              temperature: 0.2,
+              max_tokens: 800,
+            }),
+          });
+
+          if (!res.ok) {
+            const errData = await res.json().catch(() => null);
+            const errMsg = errData?.error?.message || res.statusText;
+            throw new Error(`Groq (${model}): ${errMsg}`);
+          }
+
+          const data = await res.json();
+          const text = data.choices?.[0]?.message?.content;
+          if (text) return text;
+        } catch (err: any) {
+          lastGroqError = err;
+          // If model is retired or not found, try next candidate
+          if (
+            err.message?.includes('not found') ||
+            err.message?.includes('does not exist') ||
+            err.message?.includes('model_not_found')
+          ) {
+            continue;
+          }
+          throw err;
+        }
+      }
+
+      // Automatic fallback to Gemini if Groq models fail and Gemini key is present
+      if (process.env.GEMINI_API_KEY) {
+        this.logger.warn('Groq failed, falling back to Google Gemini.');
+        return this.executeGemini(process.env.GEMINI_API_KEY, opts.systemPrompt, opts.userPrompt);
+      }
+
+      throw lastGroqError || new Error('No working Groq models available');
+    }
+
+    // 3. Hugging Face Serverless / Inference Router
+    if (opts.provider === 'huggingface' || key?.startsWith('hf_')) {
       const res = await fetch('https://router.huggingface.co/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${opts.apiKey}`,
+          Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify({
           model: 'meta-llama/Llama-3.2-3B-Instruct',
@@ -199,13 +273,26 @@ export class CopilotService {
         }),
       });
 
-      if (!res.ok) throw new Error(`HuggingFace Error: ${res.statusText}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(`HuggingFace Error: ${errData?.error?.message || res.statusText}`);
+      }
+
       const data = await res.json();
       return data.choices?.[0]?.message?.content || 'No response generated.';
     }
 
-    // 3. Google Gemini 1.5 Flash API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${opts.apiKey}`;
+    // 4. Google Gemini API (Default or BYO Key)
+    const geminiKey = key || process.env.GEMINI_API_KEY || '';
+    if (geminiKey) {
+      return this.executeGemini(geminiKey, opts.systemPrompt, opts.userPrompt);
+    }
+
+    throw new Error('No AI provider API key found. Please configure an API key in Render or user settings.');
+  }
+
+  private async executeGemini(apiKey: string, systemPrompt: string, userPrompt: string): Promise<string> {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
     const res = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -213,14 +300,18 @@ export class CopilotService {
         contents: [
           {
             role: 'user',
-            parts: [{ text: `${opts.systemPrompt}\n\nUser Question: ${opts.userPrompt}` }],
+            parts: [{ text: `${systemPrompt}\n\nUser Question: ${userPrompt}` }],
           },
         ],
         generationConfig: { temperature: 0.2, maxOutputTokens: 800 },
       }),
     });
 
-    if (!res.ok) throw new Error(`Gemini Error: ${res.statusText}`);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(`Gemini Error: ${errData?.error?.message || res.statusText}`);
+    }
+
     const data = await res.json();
     return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
   }
