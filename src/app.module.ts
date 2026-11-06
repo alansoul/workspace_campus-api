@@ -9,6 +9,7 @@ import { UniversityModule } from './modules/university/university.module.js';
 import { FreelanceModule } from './modules/freelance/freelance.module.js';
 import { ChatModule } from './modules/chat/chat.module.js';
 import { AiModule } from './modules/ai/ai.module.js';
+import { CopilotModule } from './modules/copilot/copilot.module.js';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { AiModule } from './modules/ai/ai.module.js';
     FreelanceModule,
     ChatModule,
     AiModule,
+    CopilotModule,
   ],
   controllers: [AppController],
   providers: [
