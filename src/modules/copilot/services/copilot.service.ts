@@ -291,28 +291,98 @@ export class CopilotService {
     throw new Error('No AI provider API key found. Please configure an API key in Render or user settings.');
   }
 
-  private async executeGemini(apiKey: string, systemPrompt: string, userPrompt: string): Promise<string> {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    const res = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `${systemPrompt}\n\nUser Question: ${userPrompt}` }],
-          },
-        ],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 800 },
-      }),
-    });
+  
+  private async executeGemini(
+    apiKey: string,
+    systemPrompt: string,
+    userPrompt: string
+  ): Promise<string> {
+    const candidateModels = [
+      'gemini-3.5-flash-lite',
+      'gemini-3.8-flash',
+      'gemini-3.1-flash-lite',
+      'gemini-4-argon',
+    ];
 
-    if (!res.ok) {
-      const errData = await res.json().catch(() => null);
-      throw new Error(`Gemini Error: ${errData?.error?.message || res.statusText}`);
+    let lastError: Error | null = null;
+
+    for (const model of candidateModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+        const generationConfig: Record<string, number> = {
+          maxOutputTokens: 800,
+        };
+
+        // Gemini 4 Argon does not support temperature.
+        if (model !== 'gemini-4-argon') {
+          generationConfig.temperature = 0.2;
+        }
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: `${systemPrompt}\n\nUser Question: ${userPrompt}`,
+                  },
+                ],
+              },
+            ],
+            generationConfig,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+
+          const errorMessage =
+            errorData?.error?.message || response.statusText;
+
+          lastError = new Error(`Gemini (${model}): ${errorMessage}`);
+
+          // Invalid API keys or permissions won't be fixed by trying another model.
+          if (response.status === 401 || response.status === 403) {
+            throw lastError;
+          }
+
+          this.logger.warn(lastError.message);
+          continue;
+        }
+
+        const data = await response.json();
+        const generatedText = data.candidates?.[0]?.content?.parts
+          ?.map((part: { text?: string }) => part.text || '')
+          .join('')
+          .trim();
+
+        if (generatedText) {
+          this.logger.log(`Gemini response generated using ${model}`);
+          return generatedText;
+        }
+
+        lastError = new Error(`Gemini (${model}) returned an empty response.`);
+      } catch (error) {
+        if (error instanceof Error) {
+          lastError = error;
+
+          if (
+            error.message.includes('401') ||
+            error.message.includes('403')
+          ) {
+            throw error;
+          }
+        }
+      }
     }
 
-    const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
+    throw lastError || new Error('All Gemini models failed.');
   }
+
 }
